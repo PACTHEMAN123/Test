@@ -9,6 +9,7 @@ import pytest
 
 from verl.plugin.platform import get_platform, set_platform
 from verl.plugin.platform.platform_base import PlatformBase
+from verl.plugin.platform.platform_cuda import PlatformCUDA
 from verl.plugin.platform.platform_manager import (
     PlatformRegistry,
     _create_platform,
@@ -201,6 +202,16 @@ class TestPlatformRegistry:
     def test_unregistered_platform_raises(self):
         with pytest.raises(ValueError):
             _create_platform("nonexistent_platform")
+
+
+class TestPlatformCUDA:
+    def test_rollout_env_defaults_to_disabling_nccl_cumem(self, monkeypatch):
+        monkeypatch.delenv("NCCL_CUMEM_ENABLE", raising=False)
+        assert PlatformCUDA().rollout_env_vars()["NCCL_CUMEM_ENABLE"] == "0"
+
+    def test_rollout_env_preserves_explicit_nccl_cumem(self, monkeypatch):
+        monkeypatch.setenv("NCCL_CUMEM_ENABLE", "1")
+        assert PlatformCUDA().rollout_env_vars()["NCCL_CUMEM_ENABLE"] == "1"
 
 
 if __name__ == "__main__":
