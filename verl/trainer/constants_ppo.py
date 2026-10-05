@@ -125,6 +125,9 @@ def get_ppo_ray_runtime_env(config=None):
         "FLASH_ATTENTION_DETERMINISTIC",
         "NCCL_DETERMINISTIC",
         "NCCL_ALGO",
+        "AWEX_NCCL_DEVICE_V2_MAX_CHANNELS",
+        "AWEX_NCCL_DEVICE_V2_EXTENSION",
+        "AWEX_PROFILE_SYNC_START",
     ):
         val = os.environ.get(key)
         if val is not None:

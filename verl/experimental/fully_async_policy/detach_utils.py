@@ -81,6 +81,11 @@ def addition_process(output: DataProto):
     return output
 
 
+def _normalize_param_versions(values) -> list[int]:
+    """Map requests served before the first publication to model version 0."""
+    return [0 if value is None else int(value) for value in values]
+
+
 def assemble_batch_from_rollout_samples(
     rollout_samples: list[RolloutSample], tokenizer, config, balance_batch=None
 ) -> DataProto:
@@ -148,8 +153,15 @@ def assemble_batch_from_rollout_samples(
         }
     processing_time_stats = {f"fully_async/{key}": value for key, value in processing_time_stats.items()}
 
-    param_version_start = final_batch.non_tensor_batch["min_global_steps"]
-    param_version_end = final_batch.non_tensor_batch["max_global_steps"]
+    # Rollout can begin while the initial parameter publication is still in
+    # flight. vLLM reports no version for those requests; they belong to the
+    # initial model state (version 0), rather than being invalid samples.
+    param_version_start = _normalize_param_versions(
+        final_batch.non_tensor_batch["min_global_steps"]
+    )
+    param_version_end = _normalize_param_versions(
+        final_batch.non_tensor_batch["max_global_steps"]
+    )
     param_version_diff = [abs(a - b) for a, b in zip(param_version_end, param_version_start, strict=False)]
     num_diff0 = param_version_diff.count(0)
     partial_stats = {
@@ -158,7 +170,7 @@ def assemble_batch_from_rollout_samples(
         "fully_async/partial/max_partial_span": max(param_version_diff),
     }
     # add meta_info
-    trajectory_param_versions = final_batch.non_tensor_batch["max_global_steps"]
+    trajectory_param_versions = param_version_end
 
     final_batch.meta_info.update(
         {
