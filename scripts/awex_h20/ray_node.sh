@@ -20,6 +20,9 @@ export LD_LIBRARY_PATH="$VENV/lib/python3.12/site-packages/nvidia/nvshmem/lib:$V
 export PYTHONPATH="$ROOT/scripts/vllm_preload:$VERL_SOURCE:${PYTHONPATH:-}"
 if [[ -n "$AWEX_SOURCE" ]]; then
   export PYTHONPATH="$AWEX_SOURCE:$PYTHONPATH"
+  if [[ -f "$AWEX_SOURCE/awex_nccl_device_ext_v2.so" ]]; then
+    export AWEX_NCCL_DEVICE_V2_EXTENSION=${AWEX_NCCL_DEVICE_V2_EXTENSION:-awex_nccl_device_ext_v2}
+  fi
 fi
 if [[ -n "${NCCL_RUNTIME_LIB:-}" ]]; then
   export LD_PRELOAD="$NCCL_RUNTIME_LIB${LD_PRELOAD:+:$LD_PRELOAD}"
@@ -63,4 +66,3 @@ case "$role" in
     exit 2
     ;;
 esac
-
