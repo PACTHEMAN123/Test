@@ -106,6 +106,7 @@ if [[ "$CHECKPOINT_BACKEND" == awex_weightrail ]]; then
   export NCCL_CUMEM_ENABLE=1
   export TORCH_EXTENSIONS_DIR=${TORCH_EXTENSIONS_DIR:-$ROOT/build-cache/torch-extensions-nccl230}
   export AWEX_PROFILE_SYNC_START=${AWEX_PROFILE_SYNC_START:-1}
+  export AWEX_NCCL_DEVICE_V2_MAX_CHANNELS=${AWEX_NCCL_DEVICE_V2_MAX_CHANNELS:-8}
   if [[ -f "$AWEX_SOURCE/awex_nccl_device_ext_v2.so" ]]; then
     export AWEX_NCCL_DEVICE_V2_EXTENSION=${AWEX_NCCL_DEVICE_V2_EXTENSION:-awex_nccl_device_ext_v2}
   fi
