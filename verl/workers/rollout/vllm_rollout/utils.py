@@ -229,6 +229,54 @@ class vLLMColocateWorkerExtension:
             # patch weight loader to support MoE model
             patch_vllm_moe_model_weight_loader(model)
 
+    def zr_direct_prepare(
+        self,
+        hf_inventory,
+        actor_world_size: int,
+        tp_size: int,
+        protocol: str,
+        buffer_bytes: Optional[int] = None,
+        num_buffers: Optional[int] = None,
+        shared_stream: bool = False,
+    ):
+        from zr.integrations.verl.checkpoint_engine import zr_direct_prepare_vllm_worker
+
+        return zr_direct_prepare_vllm_worker(
+            self,
+            hf_inventory=hf_inventory,
+            actor_world_size=actor_world_size,
+            tp_size=tp_size,
+            protocol=protocol,
+            buffer_bytes=buffer_bytes,
+            num_buffers=num_buffers,
+            shared_stream=shared_stream,
+        )
+
+    def zr_direct_bind(self, source_layouts, trainer_segments, writer_mailboxes):
+        from zr.integrations.verl.checkpoint_engine import zr_direct_bind_vllm_worker
+
+        return zr_direct_bind_vllm_worker(
+            self,
+            source_layouts=source_layouts,
+            trainer_segments=trainer_segments,
+            writer_mailboxes=writer_mailboxes,
+        )
+
+    def zr_direct_start(self, version: int):
+        from zr.integrations.verl.checkpoint_engine import zr_direct_start_vllm_worker
+
+        return zr_direct_start_vllm_worker(self, version=version)
+
+    def zr_direct_wait(self):
+        from zr.integrations.verl.checkpoint_engine import zr_direct_wait_vllm_worker
+
+        return zr_direct_wait_vllm_worker(self)
+
+    def zr_direct_finish(self, version: int):
+        from zr.integrations.verl.checkpoint_engine import zr_direct_finish_vllm_worker
+
+        return zr_direct_finish_vllm_worker(self, version=version)
+
     def update_weights_from_ipc(self, peft_config: dict = None, base_sync_done=False, use_shm: bool = False):
         """Update the weights of the rollout model."""
         from verl.workers.rollout.vllm_rollout.bucketed_weight_transfer import BucketedWeightReceiver

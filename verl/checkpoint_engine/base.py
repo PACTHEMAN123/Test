@@ -328,11 +328,18 @@ class CheckpointEngineWorker(Worker):
                 device_mesh=None,
                 **self.extra_rollout_kwargs,
             )
+        bind_server_adapter = getattr(self.checkpoint_engine, "bind_server_adapter", None)
+        if bind_server_adapter is not None:
+            bind_server_adapter(self.server_adapter)
         # sglang and trt-llm need device_mesh for internal communication
         initialize_global_process_group_ray(timeout_second=None, backend="cpu:gloo")
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     async def update_weights(self, global_steps: int = None):
+        if getattr(self.checkpoint_engine, "wire_format", "named_tensors") == "zr_direct":
+            await self.checkpoint_engine.receive_weights(global_steps=global_steps)
+            return
+
         weights = self.checkpoint_engine.receive_weights(global_steps=global_steps)
         await self.server_adapter.update_weights(
             weights,
