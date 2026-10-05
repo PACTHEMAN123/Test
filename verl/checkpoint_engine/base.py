@@ -111,6 +111,12 @@ class CheckpointEngine(ABC):
     #   "named_tensors" -- (name, tensor) pairs, bucketed into full-tensor loads.
     #   "delta_flush"   -- per-flush sparse payloads applied via a custom loader.
     wire_format = "named_tensors"
+    # Custom transports can opt into the live training engine instead of the
+    # canonical full-tensor generator.
+    requires_model_engine = False
+    # Custom transports can update inference workers directly and bypass the
+    # rollout adapter's named-tensor loading path.
+    handles_receive = False
 
     @abstractmethod
     def prepare(self) -> dict[str, Any]:
@@ -336,7 +342,9 @@ class CheckpointEngineWorker(Worker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     async def update_weights(self, global_steps: int = None):
-        if getattr(self.checkpoint_engine, "wire_format", "named_tensors") == "zr_direct":
+        if getattr(self.checkpoint_engine, "handles_receive", False) or getattr(
+            self.checkpoint_engine, "wire_format", "named_tensors"
+        ) == "zr_direct":
             await self.checkpoint_engine.receive_weights(global_steps=global_steps)
             return
 

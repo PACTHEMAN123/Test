@@ -748,7 +748,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         # 0. send_weights only for async training with disaggregated trainer and rollout
         if effective_mode != "naive":
-            if effective_mode in {"delta_sharded", "zr"}:
+            if getattr(self.checkpoint_engine, "requires_model_engine", False) or effective_mode in {
+                "delta_sharded",
+                "zr",
+            }:
                 # These engines own the sync state machine and need the training
                 # engine so they can use backend-specific shard exports.
                 metrics = await self.checkpoint_engine.send_weights(self.actor.engine, global_steps=global_steps)
