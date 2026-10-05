@@ -7,6 +7,7 @@ def test_awex_runtime_settings_are_forwarded_to_ray_workers(monkeypatch):
     monkeypatch.setenv("AWEX_PROFILE", "1")
     monkeypatch.setenv("AWEX_PROFILE_SYNC_START", "1")
     monkeypatch.setenv("AWEX_PROFILE_WARMUP_UPDATES", "2")
+    monkeypatch.setenv("AWEX_NCCL_MAX_OPS_PER_PEER_BATCH", "64")
 
     env_vars = get_ppo_ray_runtime_env()["env_vars"]
 
@@ -15,3 +16,4 @@ def test_awex_runtime_settings_are_forwarded_to_ray_workers(monkeypatch):
     assert env_vars["AWEX_PROFILE"] == "1"
     assert env_vars["AWEX_PROFILE_SYNC_START"] == "1"
     assert env_vars["AWEX_PROFILE_WARMUP_UPDATES"] == "2"
+    assert env_vars["AWEX_NCCL_MAX_OPS_PER_PEER_BATCH"] == "64"
