@@ -6,7 +6,7 @@ set -euo pipefail
 
 ROOT=${ROOT:-/mnt/fuse/verl-e2e}
 VERL_SOURCE=${VERL_SOURCE:-$ROOT/src/verl}
-AWEX_SOURCE=${AWEX_SOURCE:-$ROOT/src/Awex-baseline-adapt}
+AWEX_SOURCE=${AWEX_SOURCE:-$ROOT/src/Awex-nccl-device-gin}
 VENV=${VENV:-$ROOT/envs/verl-py312-torch213-cu132-vllm027-pilot}
 MODEL_PATH=${MODEL_PATH:-$ROOT/models/Qwen3-30B-A3B}
 MODEL_LABEL=${MODEL_LABEL:-$(basename "$MODEL_PATH")}
@@ -108,7 +108,7 @@ if [[ "$CHECKPOINT_BACKEND" == awex_weightrail ]]; then
   export AWEX_PROFILE=${AWEX_PROFILE:-1}
   export AWEX_PROFILE_SYNC_START=${AWEX_PROFILE_SYNC_START:-1}
   export AWEX_PROFILE_WARMUP_UPDATES=${AWEX_PROFILE_WARMUP_UPDATES:-2}
-  export AWEX_NCCL_DEVICE_V2_MAX_CHANNELS=${AWEX_NCCL_DEVICE_V2_MAX_CHANNELS:-8}
+  export AWEX_NCCL_DEVICE_V2_MAX_CHANNELS=${AWEX_NCCL_DEVICE_V2_MAX_CHANNELS:-64}
   if [[ -f "$AWEX_SOURCE/awex_nccl_device_ext_v2.so" ]]; then
     export AWEX_NCCL_DEVICE_V2_EXTENSION=${AWEX_NCCL_DEVICE_V2_EXTENSION:-awex_nccl_device_ext_v2}
   fi
