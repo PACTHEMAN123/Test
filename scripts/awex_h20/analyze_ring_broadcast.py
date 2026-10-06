@@ -303,8 +303,6 @@ def main() -> int:
         steps, progress_seconds, progress_total, transport_profile = parse_log(
             run_dir / "run.log"
         )
-        if not steps:
-            continue
         profiles = parse_profiles(run_dir / "run.log", run_meta)
         profile_rows.extend(profiles)
         validations.append(
