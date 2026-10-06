@@ -104,6 +104,7 @@ if [[ "$CHECKPOINT_BACKEND" == awex_weightrail ]]; then
   export LD_PRELOAD=${LD_PRELOAD:-$AWEX_NCCL_LIB/libnccl.so.2}
   export LD_LIBRARY_PATH="$AWEX_NCCL_LIB:$LD_LIBRARY_PATH"
   export NCCL_CUMEM_ENABLE=1
+  export NCCL_GIN_ENABLE=1
   export TORCH_EXTENSIONS_DIR=${TORCH_EXTENSIONS_DIR:-$ROOT/build-cache/torch-extensions-nccl230}
   export AWEX_PROFILE=${AWEX_PROFILE:-1}
   export AWEX_PROFILE_SYNC_START=${AWEX_PROFILE_SYNC_START:-1}

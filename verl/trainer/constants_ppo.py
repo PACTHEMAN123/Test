@@ -126,6 +126,7 @@ def get_ppo_ray_runtime_env(config=None):
         "NCCL_DETERMINISTIC",
         "NCCL_ALGO",
         "NCCL_CUMEM_ENABLE",
+        "NCCL_GIN_ENABLE",
         "AWEX_NCCL_MAX_OPS_PER_PEER_BATCH",
         "AWEX_NCCL_DEVICE_V2_MAX_CHANNELS",
         "AWEX_NCCL_DEVICE_V2_EXTENSION",
