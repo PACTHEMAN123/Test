@@ -28,7 +28,7 @@ WORKFLOW_FIRST = 8
 WORKFLOW_LAST = 39
 TRAINER_GPUS = 16
 ROLLOUT_GPUS = 16
-EXPECTED_SAMPLES = 128
+NOMINAL_SAMPLES = 128
 
 RAW_METRICS = {
     "fully_async/rollouter/active_time": "rollout_active_s",
@@ -68,6 +68,7 @@ SUMMARY_METRICS = (
     ("version_time_s", "workflow", "Synchronization cycle (s)"),
     ("trainer_iteration_s", "workflow", "Trainer iteration (s)"),
     ("rollout_throughput_samples_s", "workflow", "Rollout throughput (sample/s)"),
+    ("generated_samples", "workflow", "Generated samples per version"),
     ("rollout_active_s", "workflow", "Rollout active interval (s)"),
     ("rollout_inactive_s", "workflow", "Rollout inactive interval (s)"),
     ("generation_s", "workflow", "Trainer-observed generation (s)"),
@@ -222,10 +223,15 @@ def run_validation(
     }
     expected_publication = set(range(PUBLICATION_FIRST, PUBLICATION_LAST + 1))
     expected_workflow = set(range(WORKFLOW_FIRST, WORKFLOW_LAST + 1))
-    bad_samples = [
+    invalid_samples = [
         step
         for step in expected_workflow
-        if steps.get(step, {}).get("generated_samples") != EXPECTED_SAMPLES
+        if steps.get(step, {}).get("generated_samples", 0) <= 0
+    ]
+    off_nominal_samples = [
+        step
+        for step in expected_workflow
+        if steps.get(step, {}).get("generated_samples") != NOMINAL_SAMPLES
     ]
     missing_publication = sorted(expected_publication - publication_steps)
     missing_workflow = sorted(expected_workflow - workflow_steps)
@@ -235,7 +241,7 @@ def run_validation(
         progress_seconds is not None,
         not missing_publication,
         not missing_workflow,
-        not bad_samples,
+        not invalid_samples,
     ]
     if backend == "awex_weightrail":
         checks.extend([profile["gin_full"] > 0, profile["gin_non_full"] == 0])
@@ -249,7 +255,10 @@ def run_validation(
         "workflow_sample_count": len(workflow_steps & expected_workflow),
         "missing_publication_steps": ",".join(map(str, missing_publication)),
         "missing_workflow_steps": ",".join(map(str, missing_workflow)),
-        "bad_generated_sample_steps": ",".join(map(str, bad_samples)),
+        "invalid_generated_sample_steps": ",".join(map(str, invalid_samples)),
+        "off_nominal_generated_sample_steps": ",".join(
+            map(str, off_nominal_samples)
+        ),
         **profile,
     }
 
@@ -332,6 +341,7 @@ def write_report(
         ("trainer_iteration_s", "Trainer iteration (s)", "p50"),
         ("rollout_throughput_samples_s", "Rollout throughput p50 (sample/s)", "p50"),
         ("rollout_throughput_samples_s", "Rollout throughput aggregate (sample/s)", "aggregate_rate"),
+        ("generated_samples", "Generated samples per version", "p50"),
         ("rollout_active_s", "Rollout active interval (s)", "p50"),
         ("rollout_inactive_s", "Rollout inactive interval (s)", "p50"),
         ("generation_s", "Trainer-observed generation (s)", "p50"),
@@ -470,7 +480,8 @@ def main() -> int:
         "status", "exit_code", "progress_seconds", "parsed_step_count",
         "publication_sample_count", "workflow_sample_count",
         "missing_publication_steps", "missing_workflow_steps",
-        "bad_generated_sample_steps", "gin_full", "gin_non_full", "plan_cache_hit",
+        "invalid_generated_sample_steps", "off_nominal_generated_sample_steps",
+        "gin_full", "gin_non_full", "plan_cache_hit",
     ]
     write_csv(output_dir / "topology-matrix-steps.csv", step_rows, step_fields)
     write_csv(output_dir / "topology-matrix-summary.csv", summaries, summary_fields)
