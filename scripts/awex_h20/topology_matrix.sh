@@ -8,6 +8,7 @@ VENV=${VENV:-$ROOT/envs/verl-py312-torch213-cu132-vllm027-pilot}
 MODEL_PATH=${MODEL_PATH:-$ROOT/models/Qwen3-30B-A3B}
 MATRIX_ROOT=${MATRIX_ROOT:-$ROOT/runs/awex-topology-matrix-20261006}
 TARGET_TRAIN_STEPS=${TARGET_TRAIN_STEPS:-40}
+PROFILE_WARMUP_UPDATES=${AWEX_PROFILE_WARMUP_UPDATES:-8}
 PROMPT_BATCH=${PROMPT_BATCH:-32}
 ROLLOUT_N=${ROLLOUT_N:-4}
 
@@ -39,6 +40,8 @@ run_one() {
   fi
 
   mkdir -p "$run_root"
+  printf 'target_train_steps\tprofile_warmup_updates\n%s\t%s\n' \
+    "$TARGET_TRAIN_STEPS" "$PROFILE_WARMUP_UPDATES" > "$run_root/protocol.tsv"
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\trunning\n' \
     "$run_name" "$topology" "$actor_tp" "$actor_pp" "$actor_cp" \
     "$actor_ep" "$use_megatron_fsdp" "$rollout_tp" "$backend" >> "$manifest"
@@ -60,6 +63,7 @@ run_one() {
     ACTOR_ETP=1 \
     USE_MEGATRON_FSDP="$use_megatron_fsdp" \
     TARGET_TRAIN_STEPS="$TARGET_TRAIN_STEPS" \
+    AWEX_PROFILE_WARMUP_UPDATES="$PROFILE_WARMUP_UPDATES" \
     CHECKPOINT_BACKEND="$backend" \
     NCCL_IB_HCA_MODE=balanced \
     bash "$VERL_SOURCE/scripts/awex_h20/4node_launch.sh" \

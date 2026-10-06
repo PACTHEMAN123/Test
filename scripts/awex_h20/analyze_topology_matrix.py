@@ -18,14 +18,12 @@ RUN_RE = re.compile(
     r"^(?P<topology>p(?P<actor_pp>\d+)t(?P<actor_tp>\d+)c(?P<actor_cp>\d+)e(?P<actor_ep>\d+))"
     r"-rtp(?P<rollout_tp>\d+)-(?P<backend>nccl|awex_nccl|awex_weightrail)$"
 )
-PROGRESS_RE = re.compile(r"Training Progress:\s*100%.*?40/40 \[(\d+):(\d+)<")
+PROGRESS_RE = re.compile(
+    r"Training Progress:\s*100%.*?(\d+)/(\d+) \[(\d+):(\d+)<"
+)
 STEP_RE = re.compile(r"step:(\d+)\s+-\s+(.*)")
 METRIC_RE = re.compile(r"^([^:]+):(.+)$")
 
-PUBLICATION_FIRST = 8
-PUBLICATION_LAST = 40
-WORKFLOW_FIRST = 8
-WORKFLOW_LAST = 39
 TRAINER_GPUS = 16
 ROLLOUT_GPUS = 16
 NOMINAL_SAMPLES = 128
@@ -120,16 +118,21 @@ def parse_number(value: str) -> float | None:
     return result if math.isfinite(result) else None
 
 
-def parse_log(path: Path) -> tuple[dict[int, dict[str, float]], int | None, dict[str, int]]:
+def parse_log(
+    path: Path,
+) -> tuple[dict[int, dict[str, float]], int | None, int | None, dict[str, int]]:
     steps: dict[int, dict[str, float]] = defaultdict(dict)
     progress_seconds = None
+    progress_total = None
     profile = {"gin_full": 0, "gin_non_full": 0, "plan_cache_hit": 0}
 
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         for raw_line in handle:
             line = ANSI_RE.sub("", raw_line)
-            for minutes, seconds in PROGRESS_RE.findall(line):
-                progress_seconds = int(minutes) * 60 + int(seconds)
+            for current, total, minutes, seconds in PROGRESS_RE.findall(line):
+                if current == total:
+                    progress_total = int(total)
+                    progress_seconds = int(minutes) * 60 + int(seconds)
             if "AWEX_PROFILE " in line:
                 try:
                     payload, _ = json.JSONDecoder().raw_decode(
@@ -159,7 +162,32 @@ def parse_log(path: Path) -> tuple[dict[int, dict[str, float]], int | None, dict
                 if value is not None:
                     steps[step][RAW_METRICS[key]] = value
 
-    return steps, progress_seconds, profile
+    return steps, progress_seconds, progress_total, profile
+
+
+def measurement_protocol(
+    run_dir: Path,
+    steps: dict[int, dict[str, float]],
+    progress_total: int | None,
+) -> dict[str, int]:
+    protocol_path = run_dir / "protocol.tsv"
+    protocol: dict[str, str] = {}
+    if protocol_path.exists():
+        with protocol_path.open(newline="", encoding="utf-8") as handle:
+            protocol = next(csv.DictReader(handle, delimiter="\t"), {})
+    target = int(protocol.get("target_train_steps") or progress_total or max(steps))
+    default_warmup = 8 if target >= 40 else min(3, target - 1)
+    warmup = int(protocol.get("profile_warmup_updates") or default_warmup)
+    if not 0 < warmup < target:
+        raise ValueError(f"Invalid warm-up window for {run_dir.name}: {warmup}/{target}")
+    return {
+        "target_train_steps": target,
+        "profile_warmup_updates": warmup,
+        "publication_first_step": warmup,
+        "publication_last_step": target,
+        "workflow_first_step": warmup,
+        "workflow_last_step": target - 1,
+    }
 
 
 def metadata(run_dir: Path) -> dict[str, str | int]:
@@ -221,8 +249,18 @@ def run_validation(
         for step, values in steps.items()
         if "version_time_s" in values and "trainer_iteration_s" in values
     }
-    expected_publication = set(range(PUBLICATION_FIRST, PUBLICATION_LAST + 1))
-    expected_workflow = set(range(WORKFLOW_FIRST, WORKFLOW_LAST + 1))
+    expected_publication = set(
+        range(
+            int(run_meta["publication_first_step"]),
+            int(run_meta["publication_last_step"]) + 1,
+        )
+    )
+    expected_workflow = set(
+        range(
+            int(run_meta["workflow_first_step"]),
+            int(run_meta["workflow_last_step"]) + 1,
+        )
+    )
     invalid_samples = [
         step
         for step in expected_workflow
@@ -295,9 +333,8 @@ def write_report(
     lines = [
         "# H20 topology matrix: three-backend workflow impact",
         "",
-        f"Validated runs: **{len(completed)}/18**. Publication statistics use steps "
-        f"{PUBLICATION_FIRST}-{PUBLICATION_LAST}; workflow statistics use complete cycles "
-        f"{WORKFLOW_FIRST}-{WORKFLOW_LAST}.",
+        f"Validated runs: **{len(completed)}/18**. Each run uses its recorded warm-up "
+        "and target-step protocol; workflow statistics exclude the final truncated cycle.",
         "",
         "Each topology is matched across veRL native NCCL, Awex NCCL, and WeightRail. "
         "The PP4 topology uses Megatron distributed optimizer because the current MCore "
@@ -305,15 +342,18 @@ def write_report(
         "",
         "## Validation",
         "",
-        "| Run | Status | Publication n | Workflow n | Loop time | Full GIN profiles |",
-        "| --- | --- | ---: | ---: | ---: | ---: |",
+        "| Run | Status | Target / warm-up | Publication window | Workflow window | Loop time | Full GIN profiles |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in validations:
         elapsed = row["progress_seconds"]
         elapsed_text = "-" if elapsed == "" else f"{int(elapsed) // 60}:{int(elapsed) % 60:02d}"
         lines.append(
-            f"| {row['run']} | {row['status']} | {row['publication_sample_count']} | "
-            f"{row['workflow_sample_count']} | {elapsed_text} | {row['gin_full']} |"
+            f"| {row['run']} | {row['status']} | {row['target_train_steps']} / "
+            f"{row['profile_warmup_updates']} | {row['publication_first_step']}-"
+            f"{row['publication_last_step']} (n={row['publication_sample_count']}) | "
+            f"{row['workflow_first_step']}-{row['workflow_last_step']} "
+            f"(n={row['workflow_sample_count']}) | {elapsed_text} | {row['gin_full']} |"
         )
 
     lines.extend(
@@ -366,7 +406,11 @@ def write_report(
             f"({exemplar['rollout_engines']} engines, {trainer_mode})"
         )
         lines.append("")
-        lines.append("Publication steady-state distribution (steps 8-40):")
+        lines.append(
+            "Publication steady-state distribution "
+            f"(steps {exemplar['publication_first_step']}-"
+            f"{exemplar['publication_last_step']}):"
+        )
         lines.append("")
         lines.append("| Backend | Mean (s) | p50 (s) | p95 (s) | Min (s) | Max (s) | Stddev (s) |")
         lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: |")
@@ -383,7 +427,11 @@ def write_report(
                     f"{format_value(row['population_stddev'])} |"
                 )
         lines.append("")
-        lines.append("Workflow impact over complete cycles (steps 8-39):")
+        lines.append(
+            "Workflow impact over complete cycles "
+            f"(steps {exemplar['workflow_first_step']}-"
+            f"{exemplar['workflow_last_step']}):"
+        )
         lines.append("")
         lines.append("| Metric | WeightRail | Awex NCCL | veRL NCCL |")
         lines.append("| --- | ---: | ---: | ---: |")
@@ -421,7 +469,10 @@ def main() -> int:
     )
     for run_dir in run_dirs:
         run_meta = metadata(run_dir)
-        steps, progress_seconds, profile = parse_log(run_dir / "run.log")
+        steps, progress_seconds, progress_total, profile = parse_log(run_dir / "run.log")
+        if not steps:
+            continue
+        run_meta.update(measurement_protocol(run_dir, steps, progress_total))
         exit_code = read_exit_code(run_dir)
         validations.append(
             run_validation(run_meta, steps, exit_code, progress_seconds, profile)
@@ -435,9 +486,15 @@ def main() -> int:
 
         for metric, window, label in SUMMARY_METRICS:
             first, last = (
-                (PUBLICATION_FIRST, PUBLICATION_LAST)
+                (
+                    int(run_meta["publication_first_step"]),
+                    int(run_meta["publication_last_step"]),
+                )
                 if window == "publication"
-                else (WORKFLOW_FIRST, WORKFLOW_LAST)
+                else (
+                    int(run_meta["workflow_first_step"]),
+                    int(run_meta["workflow_last_step"]),
+                )
             )
             values = [
                 float(row[metric])
@@ -470,6 +527,8 @@ def main() -> int:
     meta_fields = [
         "run", "topology", "actor_tp", "actor_pp", "actor_cp", "actor_ep",
         "megatron_fsdp", "rollout_tp", "rollout_engines", "backend",
+        "target_train_steps", "profile_warmup_updates", "publication_first_step",
+        "publication_last_step", "workflow_first_step", "workflow_last_step",
     ]
     step_fields = meta_fields + ["step"] + list(RAW_METRICS.values()) + list(DERIVED_METRICS)
     summary_fields = meta_fields + [
