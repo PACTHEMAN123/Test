@@ -36,7 +36,6 @@ export NCCL_SOCKET_IFNAME=eth0
 export NCCL_IB_GID_INDEX=3
 export NCCL_CROSS_NIC=0
 export NCCL_CUMEM_ENABLE=${NCCL_CUMEM_ENABLE:-1}
-export NCCL_GIN_ENABLE=${NCCL_GIN_ENABLE:-1}
 export NCCL_IB_HCA="=$hca_list"
 
 export NVSHMEM_HCA_LIST="$hca_list"
