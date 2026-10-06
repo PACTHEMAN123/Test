@@ -421,6 +421,7 @@ def main() -> int:
         "extension_sha256",
         "target_train_steps",
         "profile_warmup_updates",
+        "network_step_bytes",
         "publication_first_step",
         "publication_last_step",
         "workflow_first_step",

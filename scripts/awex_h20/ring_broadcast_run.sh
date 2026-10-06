@@ -12,6 +12,7 @@ RUN_LABEL=${RUN_LABEL:-$RING_MODE}
 ROLLOUT_TP=${ROLLOUT_TP:-4}
 TARGET_TRAIN_STEPS=${TARGET_TRAIN_STEPS:-10}
 PROFILE_WARMUP_UPDATES=${AWEX_PROFILE_WARMUP_UPDATES:-3}
+NETWORK_STEP_BYTES=${AWEX_NCCL_DEVICE_V2_NET_STEP_BYTES:-131072}
 PROMPT_BATCH=${PROMPT_BATCH:-32}
 ROLLOUT_N=${ROLLOUT_N:-4}
 
@@ -71,10 +72,10 @@ if [[ -e "$run_root/run.log" ]]; then
 fi
 
 mkdir -p "$run_root"
-printf 'ring_mode\tring_broadcast\tring_swizzle\trollout_tp\trollout_engines\ttarget_train_steps\tprofile_warmup_updates\tverl_commit\tawex_commit\textension_sha256\n%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+printf 'ring_mode\tring_broadcast\tring_swizzle\trollout_tp\trollout_engines\ttarget_train_steps\tprofile_warmup_updates\tnetwork_step_bytes\tverl_commit\tawex_commit\textension_sha256\n%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
   "$RING_MODE" "$ring_broadcast" "$ring_swizzle" "$ROLLOUT_TP" \
   "$((16 / ROLLOUT_TP))" "$TARGET_TRAIN_STEPS" \
-  "$PROFILE_WARMUP_UPDATES" "$verl_commit" "$awex_commit" \
+  "$PROFILE_WARMUP_UPDATES" "$NETWORK_STEP_BYTES" "$verl_commit" "$awex_commit" \
   "$extension_sha256" > "$run_root/protocol.tsv"
 printf '%s\t%s\t%s\t%s\t%s\t%s\trunning\n' \
   "$run_name" "$RING_MODE" "$ring_broadcast" "$ring_swizzle" \
@@ -98,6 +99,7 @@ if env \
   USE_MEGATRON_FSDP=1 \
   TARGET_TRAIN_STEPS="$TARGET_TRAIN_STEPS" \
   AWEX_PROFILE_WARMUP_UPDATES="$PROFILE_WARMUP_UPDATES" \
+  AWEX_NCCL_DEVICE_V2_NET_STEP_BYTES="$NETWORK_STEP_BYTES" \
   AWEX_NCCL_DEVICE_V2_RING_BROADCAST="$ring_broadcast" \
   AWEX_NCCL_DEVICE_V2_RING_SWIZZLE="$ring_swizzle" \
   CHECKPOINT_BACKEND=awex_weightrail \
