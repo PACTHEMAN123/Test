@@ -65,6 +65,9 @@ def read_protocol(run_dir: Path) -> dict[str, str | int]:
         "rollout_engines": int(
             protocol.get("rollout_engines") or 16 // rollout_tp
         ),
+        "verl_commit": protocol.get("verl_commit", ""),
+        "awex_commit": protocol.get("awex_commit", ""),
+        "extension_sha256": protocol.get("extension_sha256", ""),
         "target_train_steps": int(protocol["target_train_steps"]),
         "profile_warmup_updates": int(protocol["profile_warmup_updates"]),
         "publication_first_step": int(protocol["profile_warmup_updates"]),
@@ -219,6 +222,26 @@ def write_report(
             f"{row['ring_profile_count']} | {row['relay_profile_count']} | "
             f"{row['ring_order_strategies']} |"
         )
+
+    provenance_rows = [
+        row for row in validations if row["verl_commit"] or row["awex_commit"]
+    ]
+    if provenance_rows:
+        lines.extend(
+            [
+                "",
+                "## Software provenance",
+                "",
+                "| Run | veRL commit | Awex commit | Extension SHA256 |",
+                "| --- | --- | --- | --- |",
+            ]
+        )
+        for row in provenance_rows:
+            lines.append(
+                f"| {row['run']} | {row['verl_commit'][:12] or '-'} | "
+                f"{row['awex_commit'][:12] or '-'} | "
+                f"{row['extension_sha256'][:12] or '-'} |"
+            )
 
     lines.extend(
         [
@@ -393,6 +416,9 @@ def main() -> int:
         "ring_swizzle",
         "rollout_tp",
         "rollout_engines",
+        "verl_commit",
+        "awex_commit",
+        "extension_sha256",
         "target_train_steps",
         "profile_warmup_updates",
         "publication_first_step",

@@ -52,6 +52,10 @@ esac
 run_name="p1t2c2e8-rtp${ROLLOUT_TP}-ring-${RUN_LABEL}"
 run_root="$MATRIX_ROOT/$run_name"
 manifest="$MATRIX_ROOT/manifest.tsv"
+verl_commit=$(git -C "$VERL_SOURCE" rev-parse HEAD)
+awex_commit=$(git -C "$AWEX_SOURCE" rev-parse HEAD)
+extension_path="$AWEX_SOURCE/awex_nccl_device_ext_v2.so"
+extension_sha256=$(sha256sum "$extension_path" | cut -d ' ' -f 1)
 
 mkdir -p "$MATRIX_ROOT"
 if [[ ! -f "$manifest" ]]; then
@@ -67,10 +71,11 @@ if [[ -e "$run_root/run.log" ]]; then
 fi
 
 mkdir -p "$run_root"
-printf 'ring_mode\tring_broadcast\tring_swizzle\trollout_tp\trollout_engines\ttarget_train_steps\tprofile_warmup_updates\n%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+printf 'ring_mode\tring_broadcast\tring_swizzle\trollout_tp\trollout_engines\ttarget_train_steps\tprofile_warmup_updates\tverl_commit\tawex_commit\textension_sha256\n%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
   "$RING_MODE" "$ring_broadcast" "$ring_swizzle" "$ROLLOUT_TP" \
   "$((16 / ROLLOUT_TP))" "$TARGET_TRAIN_STEPS" \
-  "$PROFILE_WARMUP_UPDATES" > "$run_root/protocol.tsv"
+  "$PROFILE_WARMUP_UPDATES" "$verl_commit" "$awex_commit" \
+  "$extension_sha256" > "$run_root/protocol.tsv"
 printf '%s\t%s\t%s\t%s\t%s\t%s\trunning\n' \
   "$run_name" "$RING_MODE" "$ring_broadcast" "$ring_swizzle" \
   "$TARGET_TRAIN_STEPS" "$PROFILE_WARMUP_UPDATES" >> "$manifest"
