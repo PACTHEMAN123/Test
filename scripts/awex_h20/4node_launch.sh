@@ -25,6 +25,9 @@ TARGET_TRAIN_STEPS=${TARGET_TRAIN_STEPS:-40}
 TOTAL_ROLLOUT_STEPS=${TOTAL_ROLLOUT_STEPS:-$((PROMPT_BATCH * ROLLOUT_N * TARGET_TRAIN_STEPS))}
 FSDP_SHARDING_STRATEGY=${FSDP_SHARDING_STRATEGY:-optim_grads}
 WEIGHT_UPDATE_BUCKET_MB=${WEIGHT_UPDATE_BUCKET_MB:-256}
+ACTOR_TP=${ACTOR_TP:-2}
+ACTOR_PP=${ACTOR_PP:-1}
+ACTOR_CP=${ACTOR_CP:-2}
 ACTOR_EP=${ACTOR_EP:-8}
 ACTOR_ETP=${ACTOR_ETP:-1}
 USE_DEEPEP=${USE_DEEPEP:-1}
@@ -46,7 +49,7 @@ case "$WEIGHT_UPDATE_BUCKET_MB" in
   ''|*[!0-9]*|0) echo "WEIGHT_UPDATE_BUCKET_MB must be a positive integer, got $WEIGHT_UPDATE_BUCKET_MB" >&2; exit 2 ;;
 esac
 
-for value_name in ACTOR_EP ACTOR_ETP; do
+for value_name in ACTOR_TP ACTOR_PP ACTOR_CP ACTOR_EP ACTOR_ETP; do
   value=${!value_name}
   case "$value" in
     ''|*[!0-9]*|0) echo "$value_name must be a positive integer, got $value" >&2; exit 2 ;;
@@ -205,10 +208,10 @@ fi
   actor_rollout_ref.actor.megatron.param_offload=False \
   actor_rollout_ref.actor.megatron.grad_offload=False \
   actor_rollout_ref.actor.megatron.optimizer_offload=False \
-  actor_rollout_ref.actor.megatron.tensor_model_parallel_size=2 \
-  actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=1 \
+  actor_rollout_ref.actor.megatron.tensor_model_parallel_size="$ACTOR_TP" \
+  actor_rollout_ref.actor.megatron.pipeline_model_parallel_size="$ACTOR_PP" \
   actor_rollout_ref.actor.megatron.virtual_pipeline_model_parallel_size=null \
-  actor_rollout_ref.actor.megatron.context_parallel_size=2 \
+  actor_rollout_ref.actor.megatron.context_parallel_size="$ACTOR_CP" \
   actor_rollout_ref.actor.megatron.expert_model_parallel_size="$ACTOR_EP" \
   actor_rollout_ref.actor.megatron.expert_tensor_parallel_size="$ACTOR_ETP" \
   actor_rollout_ref.actor.megatron.sequence_parallel=True \
@@ -272,7 +275,7 @@ fi
   rollout.total_rollout_steps="$TOTAL_ROLLOUT_STEPS" \
   trainer.logger='["console"]' \
   trainer.project_name=verl-end2end-h20 \
-  trainer.experiment_name="${MODEL_LABEL}-${CHECKPOINT_BACKEND}-tp${ROLLOUT_TP}-pb${PROMPT_BATCH}" \
+  trainer.experiment_name="${MODEL_LABEL}-${CHECKPOINT_BACKEND}-atp${ACTOR_TP}-app${ACTOR_PP}-acp${ACTOR_CP}-aep${ACTOR_EP}-rtp${ROLLOUT_TP}-pb${PROMPT_BATCH}" \
   trainer.default_local_dir="$RUN_ROOT/checkpoints" \
   trainer.resume_mode=disable \
   trainer.val_before_train=False \
