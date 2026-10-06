@@ -35,7 +35,7 @@ export NCCL_IB_DISABLE=0
 export NCCL_NET_GDR_LEVEL=PIX
 export NCCL_SOCKET_IFNAME=eth0
 export NCCL_IB_GID_INDEX=3
-export NCCL_CROSS_NIC=0
+export NCCL_CROSS_NIC=${NCCL_CROSS_NIC:-1}
 export NCCL_CUMEM_ENABLE=${NCCL_CUMEM_ENABLE:-1}
 case "$nccl_ib_hca_mode" in
   fixed)
