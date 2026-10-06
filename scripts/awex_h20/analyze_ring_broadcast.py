@@ -24,7 +24,10 @@ from analyze_topology_matrix import (
 )
 
 
-RUN_RE = re.compile(r"^p1t2c2e8-rtp4-ring-(?P<label>[A-Za-z0-9._-]+)$")
+RUN_RE = re.compile(
+    r"^p1t2c2e8-rtp(?P<rollout_tp>2|4|8)-ring-"
+    r"(?P<label>[A-Za-z0-9._-]+)$"
+)
 PROFILE_FIELDS = (
     "role",
     "step_id",
@@ -50,12 +53,18 @@ PROFILE_FIELDS = (
 def read_protocol(run_dir: Path) -> dict[str, str | int]:
     with (run_dir / "protocol.tsv").open(newline="", encoding="utf-8") as handle:
         protocol = next(csv.DictReader(handle, delimiter="\t"))
+    match = RUN_RE.fullmatch(run_dir.name)
+    rollout_tp = int(protocol.get("rollout_tp") or match.group("rollout_tp"))
     return {
         "run": run_dir.name,
-        "label": RUN_RE.fullmatch(run_dir.name).group("label"),
+        "run_label": match.group("label"),
         "ring_mode": protocol["ring_mode"],
         "ring_broadcast": int(protocol["ring_broadcast"]),
         "ring_swizzle": int(protocol["ring_swizzle"]),
+        "rollout_tp": rollout_tp,
+        "rollout_engines": int(
+            protocol.get("rollout_engines") or 16 // rollout_tp
+        ),
         "target_train_steps": int(protocol["target_train_steps"]),
         "profile_warmup_updates": int(protocol["profile_warmup_updates"]),
         "publication_first_step": int(protocol["profile_warmup_updates"]),
@@ -197,14 +206,15 @@ def write_report(
         "",
         "## Correctness",
         "",
-        "| Run | Mode | Status | Loop | Publication n | Workflow n | Ring profiles | Relay profiles | Strategy |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| Run | Mode | Engines | Status | Loop | Publication n | Workflow n | Ring profiles | Relay profiles | Strategy |",
+        "| --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for row in validations:
         elapsed = row["progress_seconds"]
         elapsed_text = "-" if elapsed == "" else f"{int(elapsed) // 60}:{int(elapsed) % 60:02d}"
         lines.append(
-            f"| {row['run']} | {row['ring_mode']} | {row['status']} | {elapsed_text} | "
+            f"| {row['run']} | {row['ring_mode']} | {row['rollout_engines']} | "
+            f"{row['status']} | {elapsed_text} | "
             f"{row['publication_sample_count']} | {row['workflow_sample_count']} | "
             f"{row['ring_profile_count']} | {row['relay_profile_count']} | "
             f"{row['ring_order_strategies']} |"
@@ -215,15 +225,15 @@ def write_report(
             "",
             "## Performance",
             "",
-            "| Run | Mode | Publication p50 (s) | p95 (s) | Iteration p50 (s) | Aggregate throughput (sample/s) | Blocked accelerator-s p50 | Speedup vs off |",
-            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| Run | Mode | Engines | Publication p50 (s) | p95 (s) | Iteration p50 (s) | Aggregate throughput (sample/s) | Blocked accelerator-s p50 | Speedup vs off |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
-    off_rows = [row for row in passed if row["ring_mode"] == "off"]
-    off_publication = None
-    if off_rows:
-        summary = lookup.get((off_rows[-1]["run"], "param_sync_s"))
-        off_publication = float(summary["p50"]) if summary else None
+    off_publications: dict[int, float] = {}
+    for off_row in (row for row in passed if row["ring_mode"] == "off"):
+        summary = lookup.get((off_row["run"], "param_sync_s"))
+        if summary:
+            off_publications[int(off_row["rollout_tp"])] = float(summary["p50"])
     for row in validations:
         publication = lookup.get((row["run"], "param_sync_s"))
         iteration = lookup.get((row["run"], "trainer_iteration_s"))
@@ -231,13 +241,11 @@ def write_report(
         blocked = lookup.get((row["run"], "total_blocked_accelerator_s"))
         if not publication:
             continue
-        speedup = (
-            off_publication / float(publication["p50"])
-            if off_publication is not None
-            else None
-        )
+        off_publication = off_publications.get(int(row["rollout_tp"]))
+        speedup = off_publication / float(publication["p50"]) if off_publication else None
         lines.append(
-            f"| {row['run']} | {row['ring_mode']} | {format_value(publication['p50'])} | "
+            f"| {row['run']} | {row['ring_mode']} | {row['rollout_engines']} | "
+            f"{format_value(publication['p50'])} | "
             f"{format_value(publication['p95'])} | "
             f"{format_value(iteration['p50']) if iteration else '-'} | "
             f"{format_value(throughput['aggregate_rate']) if throughput else '-'} | "
@@ -245,31 +253,53 @@ def write_report(
             f"{format_value(speedup) if speedup is not None else '-'}x |"
         )
 
-    swizzle_rows = [row for row in passed if row["ring_mode"] == "swizzle"]
-    target_met = False
-    if off_publication is not None and swizzle_rows:
-        swizzle_summary = lookup.get((swizzle_rows[-1]["run"], "param_sync_s"))
-        competing = [
+    swizzle_publications: dict[int, float] = {}
+    per_topology_targets: list[bool] = []
+    for swizzle_row in (row for row in passed if row["ring_mode"] == "swizzle"):
+        rollout_tp = int(swizzle_row["rollout_tp"])
+        swizzle_summary = lookup.get((swizzle_row["run"], "param_sync_s"))
+        if not swizzle_summary:
+            continue
+        swizzle_p50 = float(swizzle_summary["p50"])
+        swizzle_publications[rollout_tp] = swizzle_p50
+        competitors = [
             lookup.get((row["run"], "param_sync_s"))
             for row in passed
-            if row["ring_mode"] != "swizzle"
+            if int(row["rollout_tp"]) == rollout_tp
+            and row["ring_mode"] != "swizzle"
         ]
-        if swizzle_summary:
-            swizzle_p50 = float(swizzle_summary["p50"])
-            target_met = (
-                off_publication / swizzle_p50 >= 2.0
-                and all(
-                    other is None or swizzle_p50 < float(other["p50"])
-                    for other in competing
-                )
+        off_publication = off_publications.get(rollout_tp)
+        per_topology_targets.append(
+            off_publication is not None
+            and off_publication / swizzle_p50 >= 2.0
+            and all(
+                other is None or swizzle_p50 < float(other["p50"])
+                for other in competitors
             )
+        )
+    complete_fanout = set(swizzle_publications) == {2, 4, 8}
+    fanout_ratio = (
+        max(swizzle_publications.values()) / min(swizzle_publications.values())
+        if complete_fanout
+        else None
+    )
+    target_met = (
+        complete_fanout
+        and len(per_topology_targets) == 3
+        and all(per_topology_targets)
+        and fanout_ratio is not None
+        and fanout_ratio <= 1.25
+    )
     lines.extend(
         [
             "",
             "## Acceptance",
             "",
-            "Swizzle must be the fastest mode and deliver at least 2x publication "
-            f"speedup over the matched no-ring baseline. **Target met: {'yes' if target_met else 'no'}**.",
+            "Swizzle must be the fastest mode at each fanout, deliver at least 2x "
+            "publication speedup over matched no-ring baselines, and keep its p50 "
+            "within 25% across 2, 4, and 8 rollout engines. "
+            f"Observed complete-fanout ratio: {format_value(fanout_ratio) if fanout_ratio else '-'}. "
+            f"**Target met: {'yes' if target_met else 'no'}**.",
             "",
             "Full distributions are in `ring-broadcast-summary.csv`; per-step workflow "
             "metrics and structured Device v2 profiles are archived alongside it.",
@@ -357,10 +387,12 @@ def main() -> int:
 
     meta_fields = [
         "run",
-        "label",
+        "run_label",
         "ring_mode",
         "ring_broadcast",
         "ring_swizzle",
+        "rollout_tp",
+        "rollout_engines",
         "target_train_steps",
         "profile_warmup_updates",
         "publication_first_step",

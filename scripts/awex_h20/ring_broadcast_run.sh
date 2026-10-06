@@ -9,6 +9,7 @@ MODEL_PATH=${MODEL_PATH:-$ROOT/models/Qwen3-30B-A3B}
 MATRIX_ROOT=${MATRIX_ROOT:-$ROOT/runs/awex-ring-broadcast-20261006}
 RING_MODE=${RING_MODE:?set RING_MODE to off, naive, or swizzle}
 RUN_LABEL=${RUN_LABEL:-$RING_MODE}
+ROLLOUT_TP=${ROLLOUT_TP:-4}
 TARGET_TRAIN_STEPS=${TARGET_TRAIN_STEPS:-10}
 PROFILE_WARMUP_UPDATES=${AWEX_PROFILE_WARMUP_UPDATES:-3}
 PROMPT_BATCH=${PROMPT_BATCH:-32}
@@ -33,6 +34,14 @@ case "$RING_MODE" in
     ;;
 esac
 
+case "$ROLLOUT_TP" in
+  2|4|8) ;;
+  *)
+    echo "ROLLOUT_TP must be 2, 4, or 8, got: $ROLLOUT_TP" >&2
+    exit 2
+    ;;
+esac
+
 case "$RUN_LABEL" in
   *[!A-Za-z0-9._-]*|'')
     echo "RUN_LABEL must contain only letters, digits, dots, underscores, or dashes" >&2
@@ -40,7 +49,7 @@ case "$RUN_LABEL" in
     ;;
 esac
 
-run_name="p1t2c2e8-rtp4-ring-${RUN_LABEL}"
+run_name="p1t2c2e8-rtp${ROLLOUT_TP}-ring-${RUN_LABEL}"
 run_root="$MATRIX_ROOT/$run_name"
 manifest="$MATRIX_ROOT/manifest.tsv"
 
@@ -58,8 +67,9 @@ if [[ -e "$run_root/run.log" ]]; then
 fi
 
 mkdir -p "$run_root"
-printf 'ring_mode\tring_broadcast\tring_swizzle\ttarget_train_steps\tprofile_warmup_updates\n%s\t%s\t%s\t%s\t%s\n' \
-  "$RING_MODE" "$ring_broadcast" "$ring_swizzle" "$TARGET_TRAIN_STEPS" \
+printf 'ring_mode\tring_broadcast\tring_swizzle\trollout_tp\trollout_engines\ttarget_train_steps\tprofile_warmup_updates\n%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  "$RING_MODE" "$ring_broadcast" "$ring_swizzle" "$ROLLOUT_TP" \
+  "$((16 / ROLLOUT_TP))" "$TARGET_TRAIN_STEPS" \
   "$PROFILE_WARMUP_UPDATES" > "$run_root/protocol.tsv"
 printf '%s\t%s\t%s\t%s\t%s\t%s\trunning\n' \
   "$run_name" "$RING_MODE" "$ring_broadcast" "$ring_swizzle" \
@@ -74,7 +84,7 @@ if env \
   RUN_ROOT="$run_root" \
   PROMPT_BATCH="$PROMPT_BATCH" \
   ROLLOUT_N="$ROLLOUT_N" \
-  ROLLOUT_TP=4 \
+  ROLLOUT_TP="$ROLLOUT_TP" \
   ACTOR_TP=2 \
   ACTOR_PP=1 \
   ACTOR_CP=2 \
