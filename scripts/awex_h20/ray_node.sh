@@ -4,6 +4,7 @@ set -euo pipefail
 role=${1:?usage: $0 head|worker NODE_IP HCA_LIST}
 node_ip=${2:?usage: $0 head|worker NODE_IP HCA_LIST}
 hca_list=${3:?usage: $0 head|worker NODE_IP HCA_LIST}
+nccl_ib_hca_mode=${NCCL_IB_HCA_MODE:-fixed}
 
 ROOT=${ROOT:-/mnt/fuse/verl-e2e}
 VERL_SOURCE=${VERL_SOURCE:-$ROOT/src/verl}
@@ -36,7 +37,19 @@ export NCCL_SOCKET_IFNAME=eth0
 export NCCL_IB_GID_INDEX=3
 export NCCL_CROSS_NIC=0
 export NCCL_CUMEM_ENABLE=${NCCL_CUMEM_ENABLE:-1}
-export NCCL_IB_HCA="=$hca_list"
+case "$nccl_ib_hca_mode" in
+  fixed)
+    export NCCL_IB_HCA="=$hca_list"
+    ;;
+  balanced)
+    unset NCCL_IB_HCA
+    export AWEX_NCCL_DEVICE_V2_HCA_POLICY=balanced
+    ;;
+  *)
+    echo "NCCL_IB_HCA_MODE must be fixed or balanced, got: $nccl_ib_hca_mode" >&2
+    exit 2
+    ;;
+esac
 
 export NVSHMEM_HCA_LIST="$hca_list"
 export NVSHMEM_ENABLE_NIC_PE_MAPPING=1
