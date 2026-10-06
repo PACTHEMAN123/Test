@@ -14,7 +14,7 @@ ROLLOUT_N=${ROLLOUT_N:-4}
 mkdir -p "$MATRIX_ROOT"
 manifest="$MATRIX_ROOT/manifest.tsv"
 if [[ ! -f "$manifest" ]]; then
-  printf 'run\ttopology\tactor_tp\tactor_pp\tactor_cp\tactor_ep\trollout_tp\tbackend\tstatus\n' > "$manifest"
+  printf 'run\ttopology\tactor_tp\tactor_pp\tactor_cp\tactor_ep\tmegatron_fsdp\trollout_tp\tbackend\tstatus\n' > "$manifest"
 fi
 
 run_one() {
@@ -23,8 +23,9 @@ run_one() {
   local actor_pp=$3
   local actor_cp=$4
   local actor_ep=$5
-  local rollout_tp=$6
-  local backend=$7
+  local use_megatron_fsdp=$6
+  local rollout_tp=$7
+  local backend=$8
   local run_name="${topology}-rtp${rollout_tp}-${backend}"
   local run_root="$MATRIX_ROOT/$run_name"
 
@@ -38,9 +39,9 @@ run_one() {
   fi
 
   mkdir -p "$run_root"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\trunning\n' \
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\trunning\n' \
     "$run_name" "$topology" "$actor_tp" "$actor_pp" "$actor_cp" \
-    "$actor_ep" "$rollout_tp" "$backend" >> "$manifest"
+    "$actor_ep" "$use_megatron_fsdp" "$rollout_tp" "$backend" >> "$manifest"
 
   if env \
     ROOT="$ROOT" \
@@ -57,42 +58,43 @@ run_one() {
     ACTOR_CP="$actor_cp" \
     ACTOR_EP="$actor_ep" \
     ACTOR_ETP=1 \
+    USE_MEGATRON_FSDP="$use_megatron_fsdp" \
     TARGET_TRAIN_STEPS="$TARGET_TRAIN_STEPS" \
     CHECKPOINT_BACKEND="$backend" \
     NCCL_IB_HCA_MODE=balanced \
     bash "$VERL_SOURCE/scripts/awex_h20/4node_launch.sh" \
       > "$run_root/run.log" 2>&1; then
     printf '%s\n' 0 > "$run_root/exit_code"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\tcomplete\n' \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\tcomplete\n' \
       "$run_name" "$topology" "$actor_tp" "$actor_pp" "$actor_cp" \
-      "$actor_ep" "$rollout_tp" "$backend" >> "$manifest"
+      "$actor_ep" "$use_megatron_fsdp" "$rollout_tp" "$backend" >> "$manifest"
   else
     exit_code=$?
     printf '%s\n' "$exit_code" > "$run_root/exit_code"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\tfailed:%s\n' \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\tfailed:%s\n' \
       "$run_name" "$topology" "$actor_tp" "$actor_pp" "$actor_cp" \
-      "$actor_ep" "$rollout_tp" "$backend" "$exit_code" >> "$manifest"
+      "$actor_ep" "$use_megatron_fsdp" "$rollout_tp" "$backend" "$exit_code" >> "$manifest"
     return "$exit_code"
   fi
 }
 
 # Latin-square backend order limits systematic drift across adjacent runs.
-run_one p4t2c2e4 2 4 2 4 2 nccl
-run_one p4t2c2e4 2 4 2 4 2 awex_nccl
-run_one p4t2c2e4 2 4 2 4 2 awex_weightrail
-run_one p4t2c2e4 2 4 2 4 4 awex_nccl
-run_one p4t2c2e4 2 4 2 4 4 awex_weightrail
-run_one p4t2c2e4 2 4 2 4 4 nccl
-run_one p4t2c2e4 2 4 2 4 8 awex_weightrail
-run_one p4t2c2e4 2 4 2 4 8 nccl
-run_one p4t2c2e4 2 4 2 4 8 awex_nccl
+run_one p4t2c2e4 2 4 2 4 0 2 nccl
+run_one p4t2c2e4 2 4 2 4 0 2 awex_nccl
+run_one p4t2c2e4 2 4 2 4 0 2 awex_weightrail
+run_one p4t2c2e4 2 4 2 4 0 4 awex_nccl
+run_one p4t2c2e4 2 4 2 4 0 4 awex_weightrail
+run_one p4t2c2e4 2 4 2 4 0 4 nccl
+run_one p4t2c2e4 2 4 2 4 0 8 awex_weightrail
+run_one p4t2c2e4 2 4 2 4 0 8 nccl
+run_one p4t2c2e4 2 4 2 4 0 8 awex_nccl
 
-run_one p1t4c2e8 4 1 2 8 2 awex_nccl
-run_one p1t4c2e8 4 1 2 8 2 nccl
-run_one p1t4c2e8 4 1 2 8 2 awex_weightrail
-run_one p1t4c2e8 4 1 2 8 4 nccl
-run_one p1t4c2e8 4 1 2 8 4 awex_weightrail
-run_one p1t4c2e8 4 1 2 8 4 awex_nccl
-run_one p1t4c2e8 4 1 2 8 8 awex_weightrail
-run_one p1t4c2e8 4 1 2 8 8 awex_nccl
-run_one p1t4c2e8 4 1 2 8 8 nccl
+run_one p1t4c2e8 4 1 2 8 1 2 awex_nccl
+run_one p1t4c2e8 4 1 2 8 1 2 nccl
+run_one p1t4c2e8 4 1 2 8 1 2 awex_weightrail
+run_one p1t4c2e8 4 1 2 8 1 4 nccl
+run_one p1t4c2e8 4 1 2 8 1 4 awex_weightrail
+run_one p1t4c2e8 4 1 2 8 1 4 awex_nccl
+run_one p1t4c2e8 4 1 2 8 1 8 awex_weightrail
+run_one p1t4c2e8 4 1 2 8 1 8 awex_nccl
+run_one p1t4c2e8 4 1 2 8 1 8 nccl

@@ -30,6 +30,7 @@ ACTOR_PP=${ACTOR_PP:-1}
 ACTOR_CP=${ACTOR_CP:-2}
 ACTOR_EP=${ACTOR_EP:-8}
 ACTOR_ETP=${ACTOR_ETP:-1}
+USE_MEGATRON_FSDP=${USE_MEGATRON_FSDP:-1}
 USE_DEEPEP=${USE_DEEPEP:-1}
 MODE=${MODE:-run}
 CHECKPOINT_BACKEND=${CHECKPOINT_BACKEND:-nccl}
@@ -59,6 +60,12 @@ done
 case "$USE_DEEPEP" in
   0|1) ;;
   *) echo "USE_DEEPEP must be 0 or 1, got $USE_DEEPEP" >&2; exit 2 ;;
+esac
+
+case "$USE_MEGATRON_FSDP" in
+  0) use_megatron_fsdp=False ;;
+  1) use_megatron_fsdp=True ;;
+  *) echo "USE_MEGATRON_FSDP must be 0 or 1, got $USE_MEGATRON_FSDP" >&2; exit 2 ;;
 esac
 
 case "$CHECKPOINT_BACKEND" in
@@ -216,7 +223,7 @@ fi
   actor_rollout_ref.actor.megatron.expert_tensor_parallel_size="$ACTOR_ETP" \
   actor_rollout_ref.actor.megatron.sequence_parallel=True \
   actor_rollout_ref.actor.megatron.use_distributed_optimizer=True \
-  actor_rollout_ref.actor.megatron.use_megatron_fsdp=True \
+  actor_rollout_ref.actor.megatron.use_megatron_fsdp="$use_megatron_fsdp" \
   actor_rollout_ref.actor.megatron.use_mbridge=True \
   actor_rollout_ref.actor.megatron.use_dist_checkpointing=False \
   actor_rollout_ref.actor.megatron.override_transformer_config.recompute_granularity=null \
