@@ -113,6 +113,8 @@ class ReloadProfile:
             step_id=self.step,
             rank=self.rank,
             cuda_visible_devices=os.environ.get("CUDA_VISIBLE_DEVICES", ""),
+            cpu_affinity=sorted(os.sched_getaffinity(0)),
+            nccl_ib_hca=os.environ.get("NCCL_IB_HCA", ""),
             wall_ms=dict(self.wall_ms),
             gpu_stream_ms=dict(gpu_ms),
             calls=dict(self.calls),
