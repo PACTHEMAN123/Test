@@ -219,9 +219,9 @@ class NCCLCheckpointEngine(CheckpointEngine):
             self.world_size = world_size
         else:
             assert self.rank == rank, f"rank {rank} is not equal to self.rank {self.rank}"
-            assert self.world_size == world_size, (
-                f"world_size {world_size} is not equal to self.world_size {self.world_size}"
-            )
+            assert (
+                self.world_size == world_size
+            ), f"world_size {world_size} is not equal to self.world_size {self.world_size}"
 
         if self.rank > 0:
             self._connect_zmq_client(master_metadata)
@@ -306,9 +306,13 @@ class NCCLCheckpointEngine(CheckpointEngine):
         torch.cuda.synchronize()
 
         logger.info(f"Rank {self.rank} send weights done, time cost: {time.time() - start_time:.2f}s")
-        emit("nccl_send_pipeline", step_id=global_steps, rank=self.rank,
-             pipeline_wall_ms=(time.time() - start_time) * 1000,
-             note="includes lazy model export, packing and NCCL; not isolated wire time")
+        emit(
+            "nccl_send_pipeline",
+            step_id=global_steps,
+            rank=self.rank,
+            pipeline_wall_ms=(time.time() - start_time) * 1000,
+            note="includes lazy model export, packing and NCCL; not isolated wire time",
+        )
 
     @torch.no_grad()
     async def receive_weights(
@@ -390,6 +394,12 @@ class NCCLCheckpointEngine(CheckpointEngine):
             f"Rank {self.rank} receive weights done, total_params: {total_params}, "
             f"time cost: {time_cost:.2f}s, bandwidth: {bandwidth:.2f} GB/s"
         )
-        emit("nccl_receive_pipeline", step_id=global_steps, rank=self.rank,
-             payload_bytes=total_bytes, total_params=total_params, pipeline_wall_ms=time_cost * 1000,
-             note="includes source readiness and downstream IPC/reload backpressure")
+        emit(
+            "nccl_receive_pipeline",
+            step_id=global_steps,
+            rank=self.rank,
+            payload_bytes=total_bytes,
+            total_params=total_params,
+            pipeline_wall_ms=time_cost * 1000,
+            note="includes source readiness and downstream IPC/reload backpressure",
+        )

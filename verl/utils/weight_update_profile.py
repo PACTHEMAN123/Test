@@ -63,8 +63,13 @@ def profile_export(weights, step, rank):
         dtypes[str(tensor.dtype)] += tensor.nbytes
         yield name, tensor
     emit(
-        "actor_export", step_id=step, rank=rank, export_iterator_wall_ms=wall_ms,
-        payload_bytes=payload_bytes, tensor_count=tensor_count, dtype_bytes=dict(dtypes),
+        "actor_export",
+        step_id=step,
+        rank=rank,
+        export_iterator_wall_ms=wall_ms,
+        payload_bytes=payload_bytes,
+        tensor_count=tensor_count,
+        dtype_bytes=dict(dtypes),
     )
 
 

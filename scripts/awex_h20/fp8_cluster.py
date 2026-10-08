@@ -34,8 +34,20 @@ def operate(action, revision):
         if command(["git", "status", "--porcelain"], cwd=SOURCE):
             raise RuntimeError(f"Refusing to overwrite dirty source: {SOURCE}")
         try:
-            command(["git", "-c", "http.lowSpeedTime=10", "-c", "http.lowSpeedLimit=1", "fetch",
-                     "https://github.com/PACTHEMAN123/Test.git", BRANCH], cwd=SOURCE, timeout=30)
+            command(
+                [
+                    "git",
+                    "-c",
+                    "http.lowSpeedTime=10",
+                    "-c",
+                    "http.lowSpeedLimit=1",
+                    "fetch",
+                    "https://github.com/PACTHEMAN123/Test.git",
+                    BRANCH,
+                ],
+                cwd=SOURCE,
+                timeout=30,
+            )
         except (subprocess.SubprocessError, OSError):
             bundle = ROOT / "runs/verl-fp8-e2e-20261008/verl-fp8.bundle"
             bundle.parent.mkdir(parents=True, exist_ok=True)
@@ -46,19 +58,32 @@ def operate(action, revision):
         if actual != revision:
             raise RuntimeError((actual, revision))
         command(["git", "switch", "--detach", actual], cwd=SOURCE)
-        command([str(ROOT / "envs/verl-py312-torch213-cu132-vllm027-pilot/bin/python"), "-m", "compileall", "-q",
-                 str(SOURCE / "verl/utils/weight_update_profile.py"), str(SOURCE / "verl/workers/rollout/vllm_rollout/utils.py")])
+        command(
+            [
+                str(ROOT / "envs/verl-py312-torch213-cu132-vllm027-pilot/bin/python"),
+                "-m",
+                "compileall",
+                "-q",
+                str(SOURCE / "verl/utils/weight_update_profile.py"),
+                str(SOURCE / "verl/workers/rollout/vllm_rollout/utils.py"),
+            ]
+        )
     awex = ROOT / "src/Awex-fp8-blockwise"
     return {
-        "ip": ray.util.get_node_ip_address(), "hostname": socket.gethostname(), "cwd": os.getcwd(),
-        "user": command(["id", "-un"]), "gpu_compute_processes": idle,
+        "ip": ray.util.get_node_ip_address(),
+        "hostname": socket.gethostname(),
+        "cwd": os.getcwd(),
+        "user": command(["id", "-un"]),
+        "gpu_compute_processes": idle,
         "gpus": command(["nvidia-smi", "--query-gpu=index,name,memory.total,memory.used", "--format=csv,noheader"]),
         "gpu_nic_topology": command(["nvidia-smi", "topo", "-m"]),
         "cpu_allowed": sorted(os.sched_getaffinity(0)),
         "model_exists": (ROOT / "models/Qwen3-30B-A3B/config.json").is_file(),
         "data_exists": (ROOT / "datasets/gsm8k/train.parquet").is_file(),
         "oss_mount_exists": Path("/mnt/fuse/oss/xiaopac.xjy").is_dir(),
-        "verl_revision": command(["git", "rev-parse", "HEAD"], cwd=SOURCE if SOURCE.exists() else ROOT / "src/verl-direct-gin"),
+        "verl_revision": command(
+            ["git", "rev-parse", "HEAD"], cwd=SOURCE if SOURCE.exists() else ROOT / "src/verl-direct-gin"
+        ),
         "awex_revision": command(["git", "rev-parse", "HEAD"], cwd=awex),
         "extension_sha256": hashlib.sha256((awex / "awex_nccl_device_ext_v2.so").read_bytes()).hexdigest(),
     }
@@ -73,8 +98,14 @@ def main():
         parser.error("deploy requires --revision")
     ray.init(address="11.18.56.89:6379", logging_level="ERROR")
     nodes = {n["NodeManagerAddress"]: n["NodeID"] for n in ray.nodes() if n["Alive"]}
-    results = ray.get([operate.options(scheduling_strategy=NodeAffinitySchedulingStrategy(nodes[ip], soft=False)).remote(
-        args.action, args.revision) for ip in IPS])
+    results = ray.get(
+        [
+            operate.options(scheduling_strategy=NodeAffinitySchedulingStrategy(nodes[ip], soft=False)).remote(
+                args.action, args.revision
+            )
+            for ip in IPS
+        ]
+    )
     print(json.dumps(results, indent=2), flush=True)
     ray.shutdown()
 
