@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Generator
@@ -25,6 +26,7 @@ from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.import_utils import import_external_libs
 from verl.utils.ray_utils import auto_await
+from verl.utils.weight_update_profile import emit
 from verl.workers.config import CheckpointEngineConfig, HFModelConfig, RolloutConfig
 from verl.workers.rollout import BaseRollout, RolloutReplica, get_rollout_class
 from verl.workers.rollout.utils import ensure_async_iterator
@@ -342,9 +344,10 @@ class CheckpointEngineWorker(Worker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     async def update_weights(self, global_steps: int = None):
-        if getattr(self.checkpoint_engine, "handles_receive", False) or getattr(
-            self.checkpoint_engine, "wire_format", "named_tensors"
-        ) == "zr_direct":
+        if (
+            getattr(self.checkpoint_engine, "handles_receive", False)
+            or getattr(self.checkpoint_engine, "wire_format", "named_tensors") == "zr_direct"
+        ):
             await self.checkpoint_engine.receive_weights(global_steps=global_steps)
             return
 
@@ -511,7 +514,9 @@ class CheckpointEngineManager:
             return {}
 
         # 1. abort and save all unfinished requests for partial rollout
+        marks = [("begin", time.perf_counter())]
         await self.abort_replicas()
+        marks.append(("abort_generation", time.perf_counter()))
 
         # 2. create a temporay worker group for all replicas
         workers = []
@@ -522,15 +527,18 @@ class CheckpointEngineManager:
 
         # 3. release kv_cache before weight sync (weights stay in place)
         await self.release_kv_cache_replicas()
+        marks.append(("release_cache_and_worker_setup", time.perf_counter()))
 
         # 4. build process group
         self.build_process_group(rollout)
+        marks.append(("prepare_process_groups", time.perf_counter()))
 
         # 5. update weights of all workers
         results = ray.get(
             actor_wg.update_weights(global_steps=global_steps, mode=self.backend)
             + rollout.update_weights(global_steps=global_steps)
         )
+        marks.append(("weight_update", time.perf_counter()))
         # The sender workers return the engine's per-sync metrics (empty for
         # backends that don't track any); merge and hand them to the trainer.
         sync_metrics: dict = {}
@@ -543,12 +551,22 @@ class CheckpointEngineManager:
             actor_wg.execute_checkpoint_engine(["finalize"] * actor_wg.world_size)
             + rollout.execute_checkpoint_engine(["finalize"] * rollout.world_size)
         )
+        marks.append(("finalize_process_groups", time.perf_counter()))
 
         # 7. restore kv_cache after weight sync
         await self.resume_kv_cache_replicas()
+        marks.append(("resume_cache", time.perf_counter()))
 
         # 8. resume all unfinished requests for partial rollout
         await self.resume_generation_replicas()
+        marks.append(("resume_generation", time.perf_counter()))
+        emit(
+            "checkpoint_workflow",
+            backend=self.backend,
+            step_id=global_steps,
+            stage_wall_ms={marks[i][0]: (marks[i][1] - marks[i - 1][1]) * 1000 for i in range(1, len(marks))},
+            total_wall_ms=(marks[-1][1] - marks[0][1]) * 1000,
+        )
 
         return sync_metrics
 
