@@ -97,6 +97,16 @@ def main():
         }.items():
             for stat, value in values.items():
                 row[f"{metric}/{stat}"] = value
+        payload = result.get("directed_payload")
+        if payload:
+            latency_s = result["publication"]["p50"]
+            row["GIN_payload_bytes"] = payload["GIN_bytes"]
+            row["LSA_payload_bytes"] = payload["LSA_bytes"]
+            row["GIN_application_GBps"] = payload["GIN_bytes"] / latency_s / 1e9
+            row["requested_port_peak_capacity_pct"] = max(
+                port["percent_of_requested_200Gbps_cap"]
+                for port in payload["assigned_port_loads"]
+            )
         rows.append(row)
     fields = list(dict.fromkeys(key for row in rows for key in row))
     with (args.root / "matrix-summary.csv").open("w", newline="") as handle:
@@ -186,6 +196,22 @@ def main():
             f"节点内 LSA：{payload['LSA_bytes'] / 1e9:.6f} GB/update。"
             "有向 pair 从实际 writer 字节数和 ring 路由重建，并与全部 32 ranks 的日志校验，包含 relay、scale/framing。",
         ]
+        latency_s = awex["publication"]["p50"]
+        ports = payload["assigned_port_loads"]
+        lines += [
+            "",
+            f"按完整更新中位数计算，集群 GIN 应用吞吐为 {payload['GIN_bytes'] / latency_s / 1e9:.3f} GB/s。"
+            "该总量包含 relay 的逐 hop 字节，不能当作单张网卡的吞吐。",
+            "",
+            "| 节点／请求 HCA／方向 | GB/update | GB/s | 请求 200 Gb/s 容量比例，% |",
+            "|---|---:|---:|---:|",
+        ]
+        for port in ports:
+            lines.append(
+                f"| {port['node']} / {port['requested_hca']} / {port['direction']} | "
+                f"{port['payload_bytes'] / 1e9:.3f} | {port['step_average_GBps']:.3f} | "
+                f"{port['percent_of_requested_200Gbps_cap']:.2f} |"
+            )
         if native.get("native_receive_payloads"):
             variants = sorted(
                 {
