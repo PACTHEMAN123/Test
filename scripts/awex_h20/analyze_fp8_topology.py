@@ -32,6 +32,8 @@ def main():
     parser.add_argument("root", type=Path)
     parser.add_argument("--baseline", type=Path, required=True)
     args = parser.parse_args()
+    status_path = args.root / "experiment-status.json"
+    status = json.loads(status_path.read_text()) if status_path.exists() else {}
     results = []
     baseline = json.loads((args.baseline / "summary.json").read_text())
     for name, backend in (
@@ -150,10 +152,14 @@ def main():
         )
     lines += [
         "",
-        f"已完成配对：{complete_pairs}/4。完整分布及来源见 matrix-summary.json / CSV。",
+        f"最终完成配对：{complete_pairs} 组（基准复用 1 组，本轮新增 1 组）。"
+        "用户已结束本轮实验；不继续运行剩余拓扑。完整分布及来源见 matrix-summary.json / CSV。"
+        if status.get("status") == "stopped_by_user"
+        else f"已完成配对：{complete_pairs}/4。完整分布及来源见 matrix-summary.json / CSV。",
         "",
-        "PP1 使用 MCore FSDP；PP4 使用此前验证过的 Megatron distributed optimizer。"
-        "不同训练布局的 optimizer 配置差异已记录，因此后端收益按每个匹配 pair 解释。",
+        "两组实际训练配置均为 PP1/CP2/EP8/ETP1、MCore FSDP，仅 TP2/TP4 不同；"
+        "推理均为 TP2×8。PP4 已撤出本轮，CP1 未运行。"
+        "本轮未新增 off/naive/swizzle 或 BF16/FP8 的匹配消融。",
         "",
         "## Workflow impact 与 payload",
         "",
@@ -241,8 +247,22 @@ def main():
         "本轮新拓扑不启用该重计时，不把旧 conversion timing 当成新拓扑的实测值。",
         "",
         "物理 NIC counters 未测；requested-HCA 容量比例是条件估算，不是实际线速利用率。"
+        "TP4 组个别条件比例略超 100%，说明 requested-HCA/标称容量假设不足以成为物理上限。"
         "Blocked accelerator-seconds 是工作流推导指标，resource utilization 是框架 compute-time/allocation-time。"
         "每组只有 8 次稳态更新，p95 为小样本描述性分位数；短训练验证工作流，不代表长期收敛或逐位数值等价。",
+        "",
+        "## 运行版本与收尾",
+        "",
+        "复用 TP2 基准的 veRL runtime 为 `33e9e90221007610b71deea43ac46ec16286d81d`；"
+        "新增 TP4 对照为 `4acc6867cd71a0b30e4bfd53f936b91f80c48626`，"
+        "新增的是训练拓扑参数和不含 CUDA event 的 native payload 计数。"
+        "Awex adapter 均为 `b689ea280e17234fb9b26701fdde4a1afa1e3637`；"
+        "device v2 kernel 未修改，四节点 binary SHA256 均为 "
+        "`8406492c439aa781ba1a92470212fa4b1f0886afbbac3100629422aaa71c5a87`。",
+        "",
+        "原始日志、exit_code、逐 rank profile、workflow CSV、逐 pair payload、配置及版本均已本地归档。"
+        "旧基准保存在独立目录，未重写其数据。实验停止状态见 experiment-status.json；"
+        "最终节点检查见 postflight.json；两组均完成 10 步并正常退出。",
         "",
     ]
     (args.root / "REPORT.md").write_text("\n".join(lines))

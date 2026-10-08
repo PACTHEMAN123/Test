@@ -19,11 +19,7 @@ AWEX = ROOT / "src/Awex-fp8-verl-e2e"
 IPS = ("11.18.50.220", "11.18.56.89", "33.0.194.195", "33.240.39.192")
 INFERENCE_IPS = ("11.18.56.89", "33.240.39.192")
 EXTENSION_HASH = "8406492c439aa781ba1a92470212fa4b1f0886afbbac3100629422aaa71c5a87"
-CASES = (
-    ("p1t4c2e8-rtp2", 4, 1, 2, 8, 1, 2),
-    ("p4t2c2e4-rtp2", 2, 4, 2, 4, 0, 2),
-    ("p1t2c1e8-rtp2", 2, 1, 1, 8, 1, 2),
-)
+CASES = (("p1t4c2e8-rtp2", 4, 1, 2, 8, 1, 2),)
 
 
 @ray.remote(num_cpus=0)
@@ -178,13 +174,28 @@ def run_case(matrix_root, spec, backend, nodes, revision):
                 process.wait(timeout=30)
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
-        # Wait for only this run's Ray workers to release their reservations.
+        # Ray may release GPU reservations before worker processes finish
+        # destroying CUDA contexts. Wait for both before starting the next run.
         deadline = time.monotonic() + 120
-        while (
-            ray.available_resources().get("GPU", 0) != 32
-            and time.monotonic() < deadline
-        ):
-            time.sleep(2)
+        while time.monotonic() < deadline:
+            if ray.available_resources().get("GPU", 0) == 32:
+                inventory = ray.get(
+                    [
+                        inspect_node.options(
+                            scheduling_strategy=NodeAffinitySchedulingStrategy(
+                                nodes[ip], soft=False
+                            )
+                        ).remote()
+                        for ip in IPS
+                    ]
+                )
+                if all(not node["gpu_processes"] for node in inventory):
+                    break
+            time.sleep(5)
+        else:
+            raise TimeoutError(
+                "Run workers did not release all GPUs within two minutes"
+            )
 
 
 def main():
