@@ -32,12 +32,14 @@ def analyze(run_dir):
     steps, progress_seconds, progress_total, transport = parse_log(run_dir / "run.log")
     profiles = read_profiles(run_dir / "run.log")
     (run_dir / "profiles.json").write_text(json.dumps(profiles, indent=2) + "\n")
-    workflow = [{"step": i, **row} for i, row in sorted(steps.items()) if 3 <= i <= 9]
+    # The aggregator logs a cycle one version late, before adding the current
+    # cycle in _fit_postprocess_step. Retain both logical and raw log indices.
+    workflow = [{"step": i - 1, "logged_step": i, **row} for i, row in sorted(steps.items()) if 4 <= i <= 10]
     for row in workflow:
         enrich(row)
-    publications = [row["param_sync_s"] for i, row in sorted(steps.items()) if 3 <= i <= 10 and "param_sync_s" in row]
     steady = [p for p in profiles if isinstance(p.get("step_id"), int) and 3 <= p["step_id"] <= 10]
     checkpoint = [p for p in steady if p.get("event") == "checkpoint_workflow"]
+    publications = [p["total_wall_ms"] / 1000 for p in checkpoint]
     reloads = [p for p in steady if p.get("event") == "vllm_fp8_reload"]
     awex = [p for p in steady if p.get("event") == "weight_transfer"]
     breakdown = {}
@@ -82,7 +84,7 @@ def analyze(run_dir):
                 if p.get("role") == role and field in p:
                     by_step[p["step_id"]].append(p[field])
             breakdown[f"awex/{role}/{field}/rank_max_ms"] = summarize([max(v) for v in by_step.values()])
-    fields = ["step", *RAW_METRICS.values(), *DERIVED_METRICS]
+    fields = ["step", "logged_step", *RAW_METRICS.values(), *DERIVED_METRICS]
     with (run_dir / "workflow-steps.csv").open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
@@ -93,7 +95,7 @@ def analyze(run_dir):
         "progress_total": progress_total,
         "progress_seconds": progress_seconds,
         "publication": summarize(publications),
-        "workflow": {field: summarize([r[field] for r in workflow if field in r]) for field in fields[1:]},
+        "workflow": {field: summarize([r[field] for r in workflow if field in r]) for field in fields[2:]},
         "breakdown": breakdown,
         "transport": transport,
         "checkpoint_records_per_step": dict(sorted(Counter(p["step_id"] for p in checkpoint).items())),
