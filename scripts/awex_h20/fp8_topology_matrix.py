@@ -20,11 +20,9 @@ IPS = ("11.18.50.220", "11.18.56.89", "33.0.194.195", "33.240.39.192")
 INFERENCE_IPS = ("11.18.56.89", "33.240.39.192")
 EXTENSION_HASH = "8406492c439aa781ba1a92470212fa4b1f0886afbbac3100629422aaa71c5a87"
 CASES = (
-    ("p1t2c2e8-rtp4", 2, 1, 2, 8, 1, 4),
     ("p1t4c2e8-rtp2", 4, 1, 2, 8, 1, 2),
-    ("p1t4c2e8-rtp4", 4, 1, 2, 8, 1, 4),
     ("p4t2c2e4-rtp2", 2, 4, 2, 4, 0, 2),
-    ("p4t2c2e4-rtp4", 2, 4, 2, 4, 0, 4),
+    ("p1t2c1e8-rtp2", 2, 1, 1, 8, 1, 2),
 )
 
 
@@ -205,9 +203,9 @@ def main():
             if args.case and args.case != spec[0]:
                 continue
             backends = (
-                ("awex_weightrail", "nccl")
+                ("nccl", "awex_weightrail")
                 if index % 2 == 0
-                else ("nccl", "awex_weightrail")
+                else ("awex_weightrail", "nccl")
             )
             for backend in backends:
                 run_case(args.root, spec, backend, nodes, args.revision)
