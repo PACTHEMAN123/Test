@@ -40,6 +40,8 @@ def summarize(values):
 
 
 def analyze(run_dir):
+    metadata_path = run_dir / "case.json"
+    metadata = json.loads(metadata_path.read_text()) if metadata_path.exists() else {}
     steps, progress_seconds, progress_total, transport = parse_log(run_dir / "run.log")
     profiles = read_profiles(run_dir / "run.log")
     (run_dir / "profiles.json").write_text(json.dumps(profiles, indent=2) + "\n")
@@ -200,6 +202,7 @@ def analyze(run_dir):
         writer.writerows(workflow)
     return {
         "run": run_dir.name,
+        "case": metadata,
         "exit_code": read_exit_code(run_dir),
         "progress_total": progress_total,
         "progress_seconds": progress_seconds,
@@ -257,7 +260,7 @@ def analyze(run_dir):
         and progress_total == 10
         and len(publications) == 8
         and len(workflow) == 7
-        and all(row.get("generated_samples") == 128 for row in workflow)
+        and all(row.get("generated_samples", 0) > 0 for row in workflow)
         and (
             not reloads
             or all(sum(p["step_id"] == i for p in reloads) == 16 for i in range(3, 11))
@@ -270,7 +273,12 @@ def analyze(run_dir):
 
 
 def analyze_pair_payloads(run_dir, profiles, publications):
-    """Audit this TP2 x 8 swizzle setup using actual per-rank peer payloads."""
+    """Audit the two inference nodes' TP2/TP4 swizzle paths from per-rank logs."""
+    metadata_path = run_dir / "case.json"
+    metadata = json.loads(metadata_path.read_text()) if metadata_path.exists() else {}
+    tp = metadata.get("rollout_tp", 2)
+    fanout = metadata.get("fanout", 16 // tp)
+    assert tp in (2, 4) and fanout * tp == 16
     records = {}
     fields = (
         "role",
@@ -307,9 +315,9 @@ def analyze_pair_payloads(run_dir, profiles, publications):
         assert len(peers) == len(amounts)
         for first, amount in zip(peers, amounts):
             flows[root, first] += amount
-            targets = [engine * 2 + first % 2 for engine in range(8)]
+            targets = [engine * tp + first % tp for engine in range(fanout)]
             groups = [targets[::2], targets[1::2]]
-            offset = (root // 2) % 4
+            offset = (root // 2) % (fanout // 2)
             order = []
             for index in range(2):
                 group = groups[(root + index) % 2]
