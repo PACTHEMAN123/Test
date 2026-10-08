@@ -28,7 +28,7 @@ from verl.utils.net_utils import is_ipv6
 
 
 def set_numa_affinity():
-    if is_npu_available():
+    if is_npu_available:
         # TODO (FightingZhen) libnuma.so is not available in e2e_ascend CI image, remove this code after image update.
         return
 
