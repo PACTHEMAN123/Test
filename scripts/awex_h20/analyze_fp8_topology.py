@@ -140,7 +140,7 @@ def main():
         )
     lines += [
         "",
-        f"已完成配对：{complete_pairs}/6。完整分布及来源见 matrix-summary.json / CSV。",
+        f"已完成配对：{complete_pairs}/4。完整分布及来源见 matrix-summary.json / CSV。",
         "",
         "PP1 使用 MCore FSDP；PP4 使用此前验证过的 Megatron distributed optimizer。"
         "不同训练布局的 optimizer 配置差异已记录，因此后端收益按每个匹配 pair 解释。",
@@ -199,6 +199,12 @@ def main():
             ]
         lines += ["", f"来源：原生 `{native['origin']}`；Awex `{awex['origin']}`。", ""]
     lines += [
+        "## TP4 推理的配置限制",
+        "",
+        "推理 TP4×4 在 vLLM 构建 FP8 MoE weights 时失败：模型 intermediate_size768 / TP4 =192，"
+        "不整除 block_n128，错误发生在传输之前。失败日志保留，未计入性能对照。"
+        "本轮保持同一 128×128 blockwise 格式和 EP1 推理，因此固定推理 TP2×8、扩展训练侧布局。",
+        "",
         "## 解释与限制",
         "",
         "原生广播训练侧完整权重，推理 worker 在 TP shard 加载前量化；Awex 在训练 shard 上融合量化、"
