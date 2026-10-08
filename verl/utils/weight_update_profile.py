@@ -36,7 +36,30 @@ def emit(event, **fields):
         print(
             "VERL_FP8_PROFILE "
             + json.dumps(
-                {"event": event, "hostname": socket.gethostname(), "pid": os.getpid(), **fields},
+                {
+                    "event": event,
+                    "hostname": socket.gethostname(),
+                    "pid": os.getpid(),
+                    **fields,
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
+
+
+def emit_payload(event, **fields):
+    """Record end-of-publication byte counts independently of CUDA event timing."""
+    if os.environ.get("VERL_WEIGHT_PAYLOAD_PROFILE", "0") == "1":
+        print(
+            "VERL_PAYLOAD_PROFILE "
+            + json.dumps(
+                {
+                    "event": event,
+                    "hostname": socket.gethostname(),
+                    "pid": os.getpid(),
+                    **fields,
+                },
                 sort_keys=True,
             ),
             flush=True,
@@ -87,7 +110,10 @@ class ReloadProfile:
 
     @contextmanager
     def stage(self, name):
-        start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+        start, end = (
+            torch.cuda.Event(enable_timing=True),
+            torch.cuda.Event(enable_timing=True),
+        )
         begin = time.perf_counter()
         start.record()
         try:
@@ -152,7 +178,9 @@ def profile_reload(fn):
     def wrapped(self, *args, **kwargs):
         if not enabled():
             return fn(self, *args, **kwargs)
-        profile = ReloadProfile(kwargs.get("global_steps"), getattr(self, "rank", self.local_rank))
+        profile = ReloadProfile(
+            kwargs.get("global_steps"), getattr(self, "rank", self.local_rank)
+        )
         token = _current.set(profile)
         begin = time.perf_counter()
         try:

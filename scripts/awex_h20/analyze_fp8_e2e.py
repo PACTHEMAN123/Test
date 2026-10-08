@@ -23,7 +23,7 @@ def read_profiles(path):
     records = []
     for line in path.read_text(errors="replace").splitlines():
         line = ANSI_RE.sub("", line)
-        for marker in ("VERL_FP8_PROFILE ", "AWEX_PROFILE "):
+        for marker in ("VERL_FP8_PROFILE ", "VERL_PAYLOAD_PROFILE ", "AWEX_PROFILE "):
             if marker in line:
                 try:
                     record, _ = json.JSONDecoder().raw_decode(line.split(marker, 1)[1])
@@ -175,7 +175,7 @@ def analyze(run_dir):
         breakdown[f"vllm_reload/{field}/rank_max_ms"] = summarize(
             [max(v) for v in by_step.values()]
         )
-    for role in ("writer", "reader"):
+    for role in ("writer", "reader", "all"):
         for field in (
             "convert_time_ms",
             "kernel_transfer_time_ms",
@@ -184,7 +184,7 @@ def analyze(run_dir):
         ):
             by_step = defaultdict(list)
             for p in awex:
-                if p.get("role") == role and field in p:
+                if (role == "all" or p.get("role") == role) and field in p:
                     by_step[p["step_id"]].append(p[field])
             breakdown[f"awex/{role}/{field}/rank_max_ms"] = summarize(
                 [max(v) for v in by_step.values()]
@@ -212,6 +212,19 @@ def analyze(run_dir):
         "workflow": {
             field: summarize([r[field] for r in workflow if field in r])
             for field in fields[3:]
+        },
+        "workflow_totals": {
+            "cycles": len(workflow),
+            "generated_samples": sum(
+                row.get("generated_samples", 0) for row in workflow
+            ),
+            "version_time_s": sum(row.get("version_time_s", 0) for row in workflow),
+            "aggregate_samples_s": sum(
+                row.get("generated_samples", 0) for row in workflow
+            )
+            / sum(row.get("version_time_s", 0) for row in workflow)
+            if sum(row.get("version_time_s", 0) for row in workflow)
+            else None,
         },
         "breakdown": breakdown,
         "transport": transport,
@@ -255,6 +268,9 @@ def analyze(run_dir):
             }
             for p in steady
             if p.get("event") == "actor_export"
+        ],
+        "native_receive_payloads": [
+            p for p in steady if p.get("event") == "nccl_receive_payload"
         ],
         "complete": read_exit_code(run_dir) == 0
         and progress_total == 10

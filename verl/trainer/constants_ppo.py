@@ -100,7 +100,9 @@ def get_ppo_ray_runtime_env(config=None):
             and the GPU is Hopper/Ampere, CUDA_DEVICE_MAX_CONNECTIONS=1 is set.
     """
     working_dir = (
-        json.loads(os.environ.get(RAY_JOB_CONFIG_JSON_ENV_VAR, "{}")).get("runtime_env", {}).get("working_dir", None)
+        json.loads(os.environ.get(RAY_JOB_CONFIG_JSON_ENV_VAR, "{}"))
+        .get("runtime_env", {})
+        .get("working_dir", None)
     )
 
     runtime_env = {
@@ -116,7 +118,11 @@ def get_ppo_ray_runtime_env(config=None):
         if os.environ.get(key) is not None:
             runtime_env["env_vars"].pop(key, None)
     # Always forward these at call-time, not import-time.
-    for key in ("VERL_FULL_DETERMINISM", "VLLM_BATCH_INVARIANT", "VERL_RL_INSIGHT_ENABLE"):
+    for key in (
+        "VERL_FULL_DETERMINISM",
+        "VLLM_BATCH_INVARIANT",
+        "VERL_RL_INSIGHT_ENABLE",
+    ):
         runtime_env["env_vars"][key] = os.environ.get(key, "0")
     # Forward only when set: empty string breaks vLLM ParallelConfig int parsing.
     for key in (
@@ -143,6 +149,7 @@ def get_ppo_ray_runtime_env(config=None):
         "AWEX_NCCL_DEVICE_V2_FP8_BLOCK_ROWS",
         "AWEX_NCCL_DEVICE_V2_FP8_BLOCK_COLS",
         "VERL_FP8_UPDATE_PROFILE",
+        "VERL_WEIGHT_PAYLOAD_PROFILE",
         "NCCL_IGNORE_CPU_AFFINITY",
         "AWEX_PROFILE",
         "AWEX_PROFILE_SYNC_START",

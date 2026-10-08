@@ -15,6 +15,7 @@ import asyncio
 import logging
 import os
 import time
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import AsyncGenerator, Generator
 from unittest.mock import patch
@@ -35,7 +36,7 @@ from verl.checkpoint_engine.base import (
     split_weight_chunks,
 )
 from verl.utils.net_utils import get_free_port, is_valid_ipv6_address
-from verl.utils.weight_update_profile import emit
+from verl.utils.weight_update_profile import emit, emit_payload
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -141,10 +142,18 @@ class NCCLCheckpointEngine(CheckpointEngine):
             self.send_buf = cp.zeros(self.bucket_size, dtype=cp.uint8)
             self.recv_buf = cp.zeros(self.bucket_size, dtype=cp.uint8)
         else:
-            self.send_buf = torch.zeros(self.bucket_size, dtype=torch.uint8, device="cuda")
-            self.recv_buf = torch.zeros(self.bucket_size, dtype=torch.uint8, device="cuda")
+            self.send_buf = torch.zeros(
+                self.bucket_size, dtype=torch.uint8, device="cuda"
+            )
+            self.recv_buf = torch.zeros(
+                self.bucket_size, dtype=torch.uint8, device="cuda"
+            )
 
-        return MasterMetadata(zmq_ip=self.ip, zmq_port=self.listen_port) if self.is_master else None
+        return (
+            MasterMetadata(zmq_ip=self.ip, zmq_port=self.listen_port)
+            if self.is_master
+            else None
+        )
 
     def finalize(self):
         """Destroy the NCCL process group if rebuild_group is True."""
@@ -160,7 +169,9 @@ class NCCLCheckpointEngine(CheckpointEngine):
         torch.cuda.empty_cache()
 
     @classmethod
-    def build_topology(cls, actor_wg_world_size: int, rollout_world_size: int, metadata: list[dict]):
+    def build_topology(
+        cls, actor_wg_world_size: int, rollout_world_size: int, metadata: list[dict]
+    ):
         actor_wg_kwargs = {
             "rank": [0] + [-1] * (actor_wg_world_size - 1),
             "world_size": [rollout_world_size + 1] * actor_wg_world_size,
@@ -188,7 +199,9 @@ class NCCLCheckpointEngine(CheckpointEngine):
         self.socket.bind(address)
 
     def _connect_zmq_client(self, metadata: MasterMetadata):
-        assert not self.is_master, "Master process should not connect to other processes."
+        assert (
+            not self.is_master
+        ), "Master process should not connect to other processes."
         context = zmq.Context()
         self.socket = context.socket(zmq.SUB)
         if is_valid_ipv6_address(metadata.zmq_ip):
@@ -200,7 +213,9 @@ class NCCLCheckpointEngine(CheckpointEngine):
         self.socket.connect(address)
         self.socket.setsockopt_string(zmq.SUBSCRIBE, self.topic)
 
-    def init_process_group(self, rank: int, world_size: int, master_metadata: MasterMetadata):
+    def init_process_group(
+        self, rank: int, world_size: int, master_metadata: MasterMetadata
+    ):
         """Initialize the NCCL process group.
 
         Args:
@@ -218,7 +233,9 @@ class NCCLCheckpointEngine(CheckpointEngine):
             self.rank = rank
             self.world_size = world_size
         else:
-            assert self.rank == rank, f"rank {rank} is not equal to self.rank {self.rank}"
+            assert (
+                self.rank == rank
+            ), f"rank {rank} is not equal to self.rank {self.rank}"
             assert (
                 self.world_size == world_size
             ), f"world_size {world_size} is not equal to self.world_size {self.world_size}"
@@ -227,7 +244,9 @@ class NCCLCheckpointEngine(CheckpointEngine):
             self._connect_zmq_client(master_metadata)
         collective.barrier(self.group_name)
 
-        logger.info(f"init_process_group rank: {self.rank}, world_size: {self.world_size}")
+        logger.info(
+            f"init_process_group rank: {self.rank}, world_size: {self.world_size}"
+        )
 
     @torch.no_grad()
     async def send_weights(
@@ -240,7 +259,9 @@ class NCCLCheckpointEngine(CheckpointEngine):
         Args:
             weights: A generator that yields the name of the weight tensor and the tensor itself.
         """
-        assert self.rank <= 0, "Trainer workers other than rank 0 should not send weights."
+        assert (
+            self.rank <= 0
+        ), "Trainer workers other than rank 0 should not send weights."
 
         # For actor rank other than 0, consume weights without sending.
         if self.rank < 0:
@@ -267,7 +288,11 @@ class NCCLCheckpointEngine(CheckpointEngine):
                     rank=self.rank,
                     group_name=self.group_name,
                     bucket=send_buf[:offset],
-                    metadata={"bucket_meta": bucket_meta, "is_last": False, "length": offset},
+                    metadata={
+                        "bucket_meta": bucket_meta,
+                        "is_last": False,
+                        "length": offset,
+                    },
                     socket=self.socket,
                     topic=self.topic,
                 )
@@ -305,7 +330,9 @@ class NCCLCheckpointEngine(CheckpointEngine):
         # buffer does not get freed before the kernel finishes.
         torch.cuda.synchronize()
 
-        logger.info(f"Rank {self.rank} send weights done, time cost: {time.time() - start_time:.2f}s")
+        logger.info(
+            f"Rank {self.rank} send weights done, time cost: {time.time() - start_time:.2f}s"
+        )
         emit(
             "nccl_send_pipeline",
             step_id=global_steps,
@@ -324,10 +351,14 @@ class NCCLCheckpointEngine(CheckpointEngine):
         Yields:
             A tuple of the name of the weight tensor and the tensor itself.
         """
-        async for name, weight in merge_weight_chunks(self._receive_weight_chunks(global_steps), self.bucket_size):
+        async for name, weight in merge_weight_chunks(
+            self._receive_weight_chunks(global_steps), self.bucket_size
+        ):
             yield name, weight
 
-    async def _receive_weight_chunks(self, global_steps=None) -> AsyncGenerator[tuple[str, torch.Tensor], None]:
+    async def _receive_weight_chunks(
+        self, global_steps=None
+    ) -> AsyncGenerator[tuple[str, torch.Tensor], None]:
         """Receive the weight chunks of the model.
 
         Yields:
@@ -336,6 +367,8 @@ class NCCLCheckpointEngine(CheckpointEngine):
         assert self.rank > 0, "Rank 0 should not receive weights."
         send_buf, recv_buf = self.send_buf, self.recv_buf
         total_bytes, total_params = 0, 0
+        record_payload = os.environ.get("VERL_WEIGHT_PAYLOAD_PROFILE", "0") == "1"
+        dtype_bytes = defaultdict(int)
 
         # receive first bucket
         start_time = time.time()
@@ -350,6 +383,9 @@ class NCCLCheckpointEngine(CheckpointEngine):
         metadata = await broadcast_op.wait_for_complete()
         total_bytes += metadata["length"]
         total_params += len(metadata["bucket_meta"])
+        if record_payload:
+            for tensor_meta in metadata["bucket_meta"].values():
+                dtype_bytes[str(tensor_meta.dtype)] += tensor_meta.chunk_size
 
         # wait for the NCCL broadcast kernel to finish before we yield the tensors
         # otherwise if the buffer is clone using a non-blocking copy, it may
@@ -371,13 +407,18 @@ class NCCLCheckpointEngine(CheckpointEngine):
 
             # 2. yield tensor from send_buf
             for name, tensor_meta in metadata["bucket_meta"].items():
-                tensor = send_buf[tensor_meta.offset : tensor_meta.offset + tensor_meta.chunk_size]
+                tensor = send_buf[
+                    tensor_meta.offset : tensor_meta.offset + tensor_meta.chunk_size
+                ]
                 yield tensor_meta, tensor
 
             # 3. wait for next bucket broadcast finish
             metadata = await broadcast_op.wait_for_complete()
             total_bytes += metadata["length"]
             total_params += len(metadata["bucket_meta"])
+            if record_payload:
+                for tensor_meta in metadata["bucket_meta"].values():
+                    dtype_bytes[str(tensor_meta.dtype)] += tensor_meta.chunk_size
 
             # 4. swap send_buf and recv_buf
             torch.cuda.synchronize()  # sync non-blocking copy
@@ -385,7 +426,9 @@ class NCCLCheckpointEngine(CheckpointEngine):
 
         # yield tensor from send_buf
         for name, tensor_meta in metadata["bucket_meta"].items():
-            tensor = send_buf[tensor_meta.offset : tensor_meta.offset + tensor_meta.chunk_size]
+            tensor = send_buf[
+                tensor_meta.offset : tensor_meta.offset + tensor_meta.chunk_size
+            ]
             yield tensor_meta, tensor
 
         time_cost = time.time() - start_time
@@ -393,6 +436,14 @@ class NCCLCheckpointEngine(CheckpointEngine):
         logger.info(
             f"Rank {self.rank} receive weights done, total_params: {total_params}, "
             f"time cost: {time_cost:.2f}s, bandwidth: {bandwidth:.2f} GB/s"
+        )
+        emit_payload(
+            "nccl_receive_payload",
+            step_id=global_steps,
+            rank=self.rank,
+            payload_bytes=total_bytes,
+            dtype_bytes=dict(dtype_bytes),
+            total_chunks=total_params,
         )
         emit(
             "nccl_receive_pipeline",
