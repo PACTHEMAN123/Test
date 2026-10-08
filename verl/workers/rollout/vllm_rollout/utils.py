@@ -29,6 +29,7 @@ from verl.utils.device import get_device_name, is_npu_available
 from verl.utils.vllm import TensorLoRARequest, VLLMHijack, resolve_weight_name
 from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 from verl.utils.vllm.vllm_quant_utils import apply_vllm_quant_patches, is_fp8_model, load_quanted_weights
+from verl.utils.weight_update_profile import profile_reload, stage
 from verl.workers.rollout.vllm_rollout.weight_update_utils import apply_buffer_updates, split_buffer_updates
 
 logger = logging.getLogger(__file__)
@@ -277,7 +278,10 @@ class vLLMColocateWorkerExtension:
 
         return zr_direct_finish_vllm_worker(self, version=version)
 
-    def update_weights_from_ipc(self, peft_config: dict = None, base_sync_done=False, use_shm: bool = False):
+    @profile_reload
+    def update_weights_from_ipc(
+        self, peft_config: dict = None, base_sync_done=False, use_shm: bool = False, global_steps: int = None
+    ):
         """Update the weights of the rollout model."""
         from verl.workers.rollout.vllm_rollout.bucketed_weight_transfer import BucketedWeightReceiver
 
@@ -317,9 +321,10 @@ class vLLMColocateWorkerExtension:
         elif is_fp8_model(self.model_runner.vllm_config):
             from verl.utils.vllm.vllm_quant_utils import prepare_quanted_weights_for_loading
 
-            quant_reload_states = [
-                (model, prepare_quanted_weights_for_loading(model)) for model in self._iter_all_models()
-            ]
+            with stage("prepare_layout"):
+                quant_reload_states = [
+                    (model, prepare_quanted_weights_for_loading(model)) for model in self._iter_all_models()
+                ]
         else:
             # TODO(wuxibin): not need anymore for newer vllm version.
             for model in self._iter_all_models():
@@ -349,11 +354,12 @@ class vLLMColocateWorkerExtension:
                 )
                 lora_weights.clear()
                 return
-            self._update_weights(
-                weights,
-                peft_config=peft_config,
-                base_sync_done=base_sync_done,
-            )
+            with stage("load_including_quantization"):
+                self._update_weights(
+                    weights,
+                    peft_config=peft_config,
+                    base_sync_done=base_sync_done,
+                )
 
         receiver.receive_weights(on_bucket_received=on_bucket_received)
 
@@ -375,8 +381,9 @@ class vLLMColocateWorkerExtension:
         elif is_fp8_model(self.model_runner.vllm_config):
             from verl.utils.vllm.vllm_quant_utils import process_quanted_weights_after_loading
 
-            for model, reload_state in quant_reload_states:
-                process_quanted_weights_after_loading(model, reload_state)
+            with stage("finalize_layout"):
+                for model, reload_state in quant_reload_states:
+                    process_quanted_weights_after_loading(model, reload_state)
         else:
             # Some post-load transforms are non-idempotent; run once after all buckets.
             from vllm.model_executor.model_loader.utils import process_weights_after_loading

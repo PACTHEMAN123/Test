@@ -35,6 +35,7 @@ USE_DEEPEP=${USE_DEEPEP:-1}
 MODE=${MODE:-run}
 CHECKPOINT_BACKEND=${CHECKPOINT_BACKEND:-nccl}
 CHECKPOINT_CUSTOM_BACKEND_MODULE=${CHECKPOINT_CUSTOM_BACKEND_MODULE:-}
+ROLLOUT_QUANTIZATION=${ROLLOUT_QUANTIZATION:-none}
 
 case "$ROLLOUT_TP" in
   2|4|8) ;;
@@ -147,6 +148,17 @@ ppo_mini_batch_size=$((PROMPT_BATCH * ROLLOUT_N))
 max_model_len=$((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH))
 
 hydra_flags=()
+quantization_flags=()
+if [[ "$ROLLOUT_QUANTIZATION" == fp8 ]]; then
+  quantization_flags+=(
+    actor_rollout_ref.rollout.quantization=fp8
+    +actor_rollout_ref.rollout.engine_kwargs.vllm.kernel_config.linear_backend=triton
+    +actor_rollout_ref.rollout.engine_kwargs.vllm.kernel_config.moe_backend=triton
+  )
+elif [[ "$ROLLOUT_QUANTIZATION" != none ]]; then
+  echo "ROLLOUT_QUANTIZATION must be none or fp8" >&2
+  exit 2
+fi
 if [[ "$MODE" == config ]]; then
   hydra_flags+=(--cfg job --resolve)
 elif [[ "$MODE" != run ]]; then
@@ -244,6 +256,7 @@ fi
   actor_rollout_ref.rollout.name=vllm \
   actor_rollout_ref.rollout.mode=async \
   actor_rollout_ref.rollout.dtype=bfloat16 \
+  "${quantization_flags[@]}" \
   actor_rollout_ref.rollout.n="$ROLLOUT_N" \
   actor_rollout_ref.rollout.tensor_model_parallel_size="$ROLLOUT_TP" \
   actor_rollout_ref.rollout.pipeline_model_parallel_size=1 \

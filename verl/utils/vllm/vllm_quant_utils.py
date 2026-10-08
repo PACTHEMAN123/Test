@@ -48,6 +48,7 @@ except ImportError:
     FusedMoE = None
 
 from verl.utils.kernel.fp8_kernel import scaled_fp8_blockwise
+from verl.utils.weight_update_profile import count_quantized, stage
 from verl.utils.vllm.vllm_fp4_utils import (
     is_deepseek_v4_model,
     iter_deepseek_v4_weights,
@@ -317,10 +318,12 @@ def quant_weights(weights, model, quant_config, dtype=torch.bfloat16):
             )
             param_scale = param_scale.flatten(-2, -1)
         else:
-            param_lp, param_scale = scaled_fp8_blockwise(
-                v.to(dtype),
-                weight_block_size=quant_config.weight_block_size,
-            )
+            with stage("bf16_to_fp8"):
+                param_lp, param_scale = scaled_fp8_blockwise(
+                    v.to(dtype),
+                    weight_block_size=quant_config.weight_block_size,
+                )
+            count_quantized(v, param_lp, param_scale)
         param_scale = param_scale.squeeze(-1)
 
         # Yield the quantized weight

@@ -35,6 +35,7 @@ from verl.checkpoint_engine.base import (
     split_weight_chunks,
 )
 from verl.utils.net_utils import get_free_port, is_valid_ipv6_address
+from verl.utils.weight_update_profile import emit
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -305,6 +306,9 @@ class NCCLCheckpointEngine(CheckpointEngine):
         torch.cuda.synchronize()
 
         logger.info(f"Rank {self.rank} send weights done, time cost: {time.time() - start_time:.2f}s")
+        emit("nccl_send_pipeline", step_id=global_steps, rank=self.rank,
+             pipeline_wall_ms=(time.time() - start_time) * 1000,
+             note="includes lazy model export, packing and NCCL; not isolated wire time")
 
     @torch.no_grad()
     async def receive_weights(
@@ -316,10 +320,10 @@ class NCCLCheckpointEngine(CheckpointEngine):
         Yields:
             A tuple of the name of the weight tensor and the tensor itself.
         """
-        async for name, weight in merge_weight_chunks(self._receive_weight_chunks(), self.bucket_size):
+        async for name, weight in merge_weight_chunks(self._receive_weight_chunks(global_steps), self.bucket_size):
             yield name, weight
 
-    async def _receive_weight_chunks(self) -> AsyncGenerator[tuple[str, torch.Tensor], None]:
+    async def _receive_weight_chunks(self, global_steps=None) -> AsyncGenerator[tuple[str, torch.Tensor], None]:
         """Receive the weight chunks of the model.
 
         Yields:
@@ -386,3 +390,6 @@ class NCCLCheckpointEngine(CheckpointEngine):
             f"Rank {self.rank} receive weights done, total_params: {total_params}, "
             f"time cost: {time_cost:.2f}s, bandwidth: {bandwidth:.2f} GB/s"
         )
+        emit("nccl_receive_pipeline", step_id=global_steps, rank=self.rank,
+             payload_bytes=total_bytes, total_params=total_params, pipeline_wall_ms=time_cost * 1000,
+             note="includes source readiness and downstream IPC/reload backpressure")

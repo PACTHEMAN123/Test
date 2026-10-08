@@ -757,6 +757,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 metrics = await self.checkpoint_engine.send_weights(self.actor.engine, global_steps=global_steps)
                 return metrics or {}
             per_tensor_param, _ = self.actor.engine.get_per_tensor_param()
+            from verl.utils.weight_update_profile import enabled, profile_export
+
+            if enabled():
+                per_tensor_param = profile_export(per_tensor_param, global_steps, self.rank)
             metrics = await self.checkpoint_engine.send_weights(per_tensor_param, global_steps=global_steps)
             return metrics or {}
 
