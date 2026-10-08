@@ -32,9 +32,29 @@ def analyze(run_dir):
     steps, progress_seconds, progress_total, transport = parse_log(run_dir / "run.log")
     profiles = read_profiles(run_dir / "run.log")
     (run_dir / "profiles.json").write_text(json.dumps(profiles, indent=2) + "\n")
-    # The aggregator logs a cycle one version late, before adding the current
-    # cycle in _fit_postprocess_step. Retain both logical and raw log indices.
-    workflow = [{"step": i - 1, "logged_step": i, **row} for i, row in sorted(steps.items()) if 4 <= i <= 10]
+    # Trainer aggregation is one cycle late; rollouter reset metrics are
+    # immediate. Joining both at the raw log index mixes different cycles.
+    rollout_fields = (
+        "rollout_active_s",
+        "version_time_s",
+        "rollout_idle_ratio_reported",
+        "generated_samples",
+        "rollout_resource_utilization",
+    )
+    workflow = []
+    for i in range(3, 10):
+        if i not in steps or i + 1 not in steps:
+            continue
+        row = {"step": i, "trainer_logged_step": i + 1, "rollout_logged_step": i, **steps[i + 1]}
+        for field in rollout_fields:
+            row.pop(field, None)
+            if field in steps[i]:
+                row[field] = steps[i][field]
+        if "train_resource_utilization" in row and "rollout_resource_utilization" in row:
+            row["combined_resource_utilization"] = (
+                row["train_resource_utilization"] + row["rollout_resource_utilization"]
+            ) / 2
+        workflow.append(row)
     for row in workflow:
         enrich(row)
     steady = [p for p in profiles if isinstance(p.get("step_id"), int) and 3 <= p["step_id"] <= 10]
@@ -84,7 +104,7 @@ def analyze(run_dir):
                 if p.get("role") == role and field in p:
                     by_step[p["step_id"]].append(p[field])
             breakdown[f"awex/{role}/{field}/rank_max_ms"] = summarize([max(v) for v in by_step.values()])
-    fields = ["step", "logged_step", *RAW_METRICS.values(), *DERIVED_METRICS]
+    fields = ["step", "trainer_logged_step", "rollout_logged_step", *RAW_METRICS.values(), *DERIVED_METRICS]
     with (run_dir / "workflow-steps.csv").open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
@@ -95,7 +115,7 @@ def analyze(run_dir):
         "progress_total": progress_total,
         "progress_seconds": progress_seconds,
         "publication": summarize(publications),
-        "workflow": {field: summarize([r[field] for r in workflow if field in r]) for field in fields[2:]},
+        "workflow": {field: summarize([r[field] for r in workflow if field in r]) for field in fields[3:]},
         "breakdown": breakdown,
         "transport": transport,
         "checkpoint_records_per_step": dict(sorted(Counter(p["step_id"] for p in checkpoint).items())),
